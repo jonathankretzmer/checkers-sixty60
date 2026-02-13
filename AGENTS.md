@@ -68,6 +68,13 @@ bun run format
 bun run lint
 ```
 
+## Docs + Agent Skill Hygiene
+
+When adding or changing CLI features, keep these docs in sync:
+
+- `README.md`: user-facing installation and command usage
+- `skills/checkers-sixty60-cli/SKILL.md`: agent-facing workflow guidance (commands, flags, and safety notes)
+
 ## Publishing to npm
 
 - Do not commit `dist/`.
