@@ -9,6 +9,7 @@ import {
   getBffToken,
   getCustomerProfile,
   getStoreIds,
+  removeFromBasket,
   searchProducts,
   startOtpFlow,
   verifyUser,
@@ -52,6 +53,7 @@ Usage:
   checkers-sixty60 view-cart
   checkers-sixty60 search --query <text> [--page <n>] [--size <n>] [--compact]
   checkers-sixty60 add-to-basket --product-id <id> [--qty <n>] [--cart-id <id>]
+  checkers-sixty60 remove-from-basket --product-id <id> [--qty <n>] [--cart-id <id>]
 
 Examples:
   checkers-sixty60 request-otp --phone 0821234567
@@ -62,6 +64,7 @@ Examples:
   checkers-sixty60 view-cart
   checkers-sixty60 search --query milk --compact
   checkers-sixty60 add-to-basket --product-id 5d3af63cf434cf8420737e3e --qty 1
+  checkers-sixty60 remove-from-basket --product-id 5d3af63cf434cf8420737e3e
 `;
 
 const parseCliArgs = (): ParsedCli => {
@@ -284,6 +287,16 @@ const ensureQuantity = (qty?: number): number => {
   return value;
 };
 
+const ensureOptionalQuantity = (qty?: number): number | undefined => {
+  if (qty === undefined) {
+    return undefined;
+  }
+  if (!Number.isInteger(qty) || qty <= 0) {
+    throw new Error("--qty must be a positive integer");
+  }
+  return qty;
+};
+
 const ensureLatitude = (value?: number): number => {
   if (value === undefined || !Number.isFinite(value)) {
     throw new Error("Missing required --lat option");
@@ -474,6 +487,26 @@ const runAddToBasket = async (
   console.log(JSON.stringify(result, null, 2));
 };
 
+const runRemoveFromBasket = async (
+  productId: string,
+  qty: number | undefined,
+  cartId?: string,
+): Promise<void> => {
+  let auth = await readJsonFile<AuthState>(AUTH_FILE);
+  if (!auth) {
+    throw new Error("No local auth found. Run login first.");
+  }
+
+  auth = await hydrateAuth(auth);
+  const result = await removeFromBasket(
+    toLoginContext(auth),
+    productId,
+    qty,
+    cartId,
+  );
+  console.log(JSON.stringify(result, null, 2));
+};
+
 const runViewCart = async (): Promise<void> => {
   let auth = await readJsonFile<AuthState>(AUTH_FILE);
   if (!auth) {
@@ -591,6 +624,15 @@ const main = async (): Promise<void> => {
     await runAddToBasket(
       ensureProductId(cli.productId),
       ensureQuantity(cli.qty),
+      cli.cartId,
+    );
+    return;
+  }
+
+  if (cli.command === "remove-from-basket") {
+    await runRemoveFromBasket(
+      ensureProductId(cli.productId),
+      ensureOptionalQuantity(cli.qty),
       cli.cartId,
     );
     return;

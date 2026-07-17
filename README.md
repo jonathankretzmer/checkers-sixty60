@@ -51,6 +51,9 @@ bun run start search --query milk --compact
 
 # Add product to basket (qty defaults to 1)
 bun run start add-to-basket --product-id 5d3af63cf434cf8420737e3e --qty 1
+
+# Remove product from basket (remove all by default)
+bun run start remove-from-basket --product-id 5d3af63cf434cf8420737e3e
 ```
 
 The CLI saves tokens to:

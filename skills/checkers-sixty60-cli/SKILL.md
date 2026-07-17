@@ -65,6 +65,17 @@ Guidance:
 - Use quantity `1` when user did not specify quantity.
 - Validate that `--qty` is a positive integer.
 
+# Remove Item From Basket
+
+Use:
+
+- `checkers-sixty60 remove-from-basket --product-id <id>`
+
+Optional:
+
+- Decrement only: `--qty <n>`
+- Pick cart: `--cart-id <id>`
+
 # Failure Recovery
 
 1. If auth context errors occur, rerun request+verify OTP flow.
