@@ -3,6 +3,10 @@ name: checkers-sixty60-cli
 description: Use the Checkers Sixty60 CLI from terminal-based agent workflows. Trigger when the user asks to authenticate, request/verify OTP, fetch orders, view cart contents, search products, or add items to basket via the local `checkers-sixty60` command.
 ---
 
+# MCP Alternative
+
+If an MCP client already has the `checkers-sixty60` MCP server connected (`checkers-sixty60 mcp`), prefer calling its tools (`request_otp`, `verify_otp`, `list_orders`, `view_cart`, `search_products`, `add_to_basket`, `remove_from_basket`, `set_location`) directly instead of shelling out to the CLI below — same underlying session state, no argv/JSON parsing needed. The rest of this skill covers the terminal/CLI path.
+
 # Verify CLI Availability
 
 1. Run `checkers-sixty60 --help`.
@@ -38,11 +42,12 @@ Prefer `--compact` when an agent needs structured summaries quickly.
 
 # View Cart
 
-Use:
+Use one of:
 
-- `checkers-sixty60 view-cart`
+- Compact: `checkers-sixty60 view-cart --compact`
+- Full JSON: `checkers-sixty60 view-cart`
 
-Use this before and after basket mutations to verify line items and totals.
+Prefer `--compact` when an agent needs structured summaries quickly. Use this before and after basket mutations to verify line items and totals.
 
 # Search Products
 

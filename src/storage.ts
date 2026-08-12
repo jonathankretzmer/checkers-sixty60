@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { DEVICE_FILE, SETTINGS_FILE } from "./config";
 
 export type AuthState = {
@@ -45,8 +45,15 @@ export const writeJsonFile = async (
 ): Promise<void> => {
   const lastSlash = path.lastIndexOf("/");
   const dir = lastSlash > 0 ? path.slice(0, lastSlash) : ".";
-  await mkdir(dir, { recursive: true });
-  await writeFile(path, JSON.stringify(value, null, 2), "utf8");
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  await writeFile(path, JSON.stringify(value, null, 2), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  // writeFile's mode option only applies when the file is newly created, so
+  // chmod explicitly to also lock down files written by earlier versions.
+  await chmod(dir, 0o700).catch(() => {});
+  await chmod(path, 0o600).catch(() => {});
 };
 
 export const getOrCreateDeviceId = async (): Promise<string> => {

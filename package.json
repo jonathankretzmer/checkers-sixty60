@@ -19,7 +19,9 @@
     "format": "biome format --write ."
   },
   "dependencies": {
-    "@inquirer/prompts": "^7.8.6"
+    "@inquirer/prompts": "^7.8.6",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

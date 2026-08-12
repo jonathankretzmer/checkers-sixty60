@@ -1,0 +1,8 @@
+{
+  "name": "checkers-sixty60",
+  "description": "A plugin allowing a user to interact with Checkers Sixty60",
+  "version": "1.0.0",
+  "author": {
+    "name": "Jonathan Kretzmer"
+  }
+}

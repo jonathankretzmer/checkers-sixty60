@@ -5,6 +5,18 @@ type HttpOptions = {
   body?: unknown;
 };
 
+export class HttpError extends Error {
+  status: number;
+  body: string;
+
+  constructor(status: number, body: string) {
+    super(`HTTP ${status}: ${body}`);
+    this.name = "HttpError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
 const withQuery = (url: string, query?: HttpOptions["query"]): string => {
   if (!query) {
     return url;
@@ -35,7 +47,7 @@ export const http = async <T>(
   const text = await response.text();
 
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${text}`);
+    throw new HttpError(response.status, text);
   }
 
   if (!text) {

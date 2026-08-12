@@ -1,2 +1,5 @@
 node_modules
-dist
+
+# mitmproxy traffic captures (contain live tokens/OTPs) - see AGENTS.md
+*.flows
+*.har
