@@ -72,6 +72,16 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
+# Patch OS packages to the latest in the Alpine branch (picks up e.g. libssl3
+# security fixes ahead of the next base-image rebuild), and drop the bundled
+# package managers. The runtime only ever runs `node dist/...`; npm / npx /
+# corepack are unused here and their vendored dependencies (tar,
+# brace-expansion, …) otherwise surface in image scans.
+RUN apk --no-cache upgrade \
+  && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
+            /usr/local/lib/node_modules/corepack /usr/local/bin/corepack \
+            /opt/yarn* /usr/local/bin/yarn /usr/local/bin/yarnpkg
+
 # Health/readiness side channel (the MCP protocol itself is stdio). Reachable
 # from outside the container only if this port is published (`docker run -p`).
 EXPOSE 8080

@@ -1,0 +1,11 @@
+# Trivy suppressions. Add a CVE id on its own line to accept a finding that is
+# either unreachable in this project's code paths or has no fix yet. Always
+# leave a dated comment explaining why, and re-check periodically.
+#
+# Example:
+#   # CVE-2026-XXXXX  2026-09-01  transitive dep of an unused SDK reference
+#   #                            server; no reachable call path. Revisit when
+#   #                            @modelcontextprotocol/sdk drops express.
+#   CVE-2026-XXXXX
+#
+# (none currently suppressed)
