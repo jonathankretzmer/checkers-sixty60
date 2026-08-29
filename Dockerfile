@@ -60,6 +60,12 @@ ENV NODE_ENV=production \
     SIXTY60_LOG_DIR=/logs \
     SIXTY60_HEALTHCHECK_PORT=8080
 
+# The Checkers Sixty60 app API credentials (SIXTY60_API_KEY,
+# SIXTY60_API_KEY_AUTH, SIXTY60_PROFILE_TOKEN) and any SIXTY60_STATE_KEY are
+# NOT baked into the image. Pass them at run time only — `--env-file`,
+# `-e`, compose `env_file:` / `environment:`, or a secrets mount. See
+# `.env.example` and docker-compose.yml.
+
 WORKDIR /app
 
 # Health/readiness side channel (the MCP protocol itself is stdio). Reachable

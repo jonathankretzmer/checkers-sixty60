@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+// Load `.env` from the working directory (no-op if absent) before any module
+// reads process.env. Harmless under bun / Docker env_file, which set the
+// environment another way.
+import "dotenv/config";
 import { input, password, select } from "@inquirer/prompts";
 import {
   addToBasket,

@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+// Load `.env` from the working directory (no-op if absent) before any module
+// reads process.env. Harmless under bun / Docker env_file, which set the
+// environment another way.
+require("dotenv/config");
 const prompts_1 = require("@inquirer/prompts");
 const api_1 = require("./api");
 const config_1 = require("./config");

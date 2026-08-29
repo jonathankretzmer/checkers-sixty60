@@ -2,6 +2,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.runMcpServer = exports.createServer = void 0;
+// Load `.env` from the working directory (no-op if absent) before any module
+// reads process.env. Harmless under bun / Docker env_file.
+require("dotenv/config");
 const mcp_js_1 = require("@modelcontextprotocol/sdk/server/mcp.js");
 const stdio_js_1 = require("@modelcontextprotocol/sdk/server/stdio.js");
 const zod_1 = require("zod");

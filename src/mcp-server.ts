@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+// Load `.env` from the working directory (no-op if absent) before any module
+// reads process.env. Harmless under bun / Docker env_file.
+import "dotenv/config";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";

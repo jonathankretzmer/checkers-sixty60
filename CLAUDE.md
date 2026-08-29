@@ -29,7 +29,8 @@
 - `{auth,device,settings}.json` hold live session tokens and must stay `0600` (dir `0700`) — enforced in `src/storage.ts:writeTextFileAtomic` (atomic write-temp-then-rename, chmod re-applied every write). Don't loosen this. In `--http` mode these are per-tenant under `$SIXTY60_DATA_DIR/tenants/<sha256(id)>/`.
 - `SIXTY60_STATE_KEY` (base64, 32 bytes) turns on AES-256-GCM envelope encryption of at-rest state (`src/crypto.ts`). Plaintext files are still read back transparently, so enabling the key on an existing install is a no-op until each file is next written. Don't log or echo the key or decrypted contents.
 - Never commit mitmproxy capture artifacts (`*.flows`, `*.har`) — they contain live tokens/OTPs in plaintext. Already gitignored; keep it that way if `.gitignore` is touched.
-- Don't add hardcoded reverse-engineered API keys/tokens to files that aren't already the established home for them (`src/api.ts`) — avoid reintroducing duplicate copies elsewhere (this happened once, in `config.ts`, and was dead code).
+- **Never hardcode the Checkers app API credentials.** `SIXTY60_API_KEY`, `SIXTY60_API_KEY_AUTH`, `SIXTY60_PROFILE_TOKEN` are read from the environment (`config.ts` exports them; `api.ts:required()` throws a clear error when a needed one is missing). `.env` is gitignored; `.env.example` is the committed template. Old hardcoded values are in git history and deliberately not scrubbed — treat them as burned.
+- `dist/cli.js` and `dist/mcp-server.js` load `.env` from cwd via `import "dotenv/config"` as their first import (before `./config` is evaluated). Keep it first.
 
 ## Code layout (see also AGENTS.md)
 

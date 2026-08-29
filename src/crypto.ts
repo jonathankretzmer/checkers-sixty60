@@ -1,9 +1,4 @@
-import {
-  createCipheriv,
-  createDecipheriv,
-  randomBytes,
-  timingSafeEqual,
-} from "node:crypto";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { STATE_KEY_B64 } from "./config";
 
 // Optional envelope encryption for at-rest tenant state (auth tokens, device
@@ -111,15 +106,4 @@ export const unseal = (raw: string): string => {
   const decipher = createDecipheriv(ALG, k, iv);
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8");
-};
-
-// Constant-time string compare, exported for auth-adjacent checks that compare
-// secrets (kept here so there is a single vetted implementation).
-export const safeEqual = (a: string, b: string): boolean => {
-  const bufA = Buffer.from(a, "utf8");
-  const bufB = Buffer.from(b, "utf8");
-  if (bufA.length !== bufB.length) {
-    return false;
-  }
-  return timingSafeEqual(bufA, bufB);
 };

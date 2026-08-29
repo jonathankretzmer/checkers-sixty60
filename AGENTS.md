@@ -45,6 +45,19 @@ Under `mcp --http` the same three files are per-tenant at
 as the `default` tenant and keep using the flat paths above. `SIXTY60_STATE_KEY`
 (base64, 32 bytes) enables AES-256-GCM envelope encryption of all of these.
 
+## API Credentials
+
+The Checkers app API keys are **not** in the source. Set them via env / `.env`
+(see `.env.example`), only needed for the login/OTP flow:
+
+- `SIXTY60_API_KEY` — `x-api-key` on `/users/verify`
+- `SIXTY60_API_KEY_AUTH` — `x-api-key` on the OTP request/verify calls
+- `SIXTY60_PROFILE_TOKEN` — bearer on the customer-profile call
+
+`config.ts` reads them; `api.ts:required()` throws an actionable error if a
+needed one is missing. `dist/*.js` entrypoints load `.env` from cwd via
+`dotenv/config`.
+
 ## Location Handling
 
 Many endpoints depend on latitude/longitude to resolve store contexts.

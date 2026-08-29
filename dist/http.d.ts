@@ -3,6 +3,7 @@ type HttpOptions = {
     headers?: Record<string, string>;
     query?: Record<string, string | boolean | number | undefined>;
     body?: unknown;
+    timeoutMs?: number;
 };
 export declare class HttpError extends Error {
     status: number;

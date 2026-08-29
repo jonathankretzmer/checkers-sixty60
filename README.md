@@ -1,11 +1,48 @@
 # Checkers Sixty60 CLI (Bun + TypeScript)
 
+> **Disclaimer.** This is an **unofficial**, personal project. It is not
+> affiliated with, endorsed by, or supported by Checkers, Shoprite, or Sixty60.
+> It talks to a private mobile API that can change or break without notice, and
+> automated access may be against the service's terms — use it at your own risk
+> and only with your own account. Provided "as is", without warranty (see
+> [LICENSE](LICENSE)). No API credentials are bundled; you supply your own (see
+> [Configuration](#configuration)).
+
 This project provides a Bun CLI for:
 
 - interactive auth (phone + OTP)
 - local token persistence
 - authenticated order fetch, cart, search, and basket operations
 - an MCP server exposing the same capabilities over stdio (see [MCP server](#mcp-server))
+
+## Configuration
+
+The Checkers Sixty60 app API credentials are **not** included in the source.
+Only the login / OTP flow needs them — a saved session (`~/.checkers-sixty60/`)
+works without.
+
+| Variable | Used for |
+| --- | --- |
+| `SIXTY60_API_KEY` | `x-api-key` on the `/users/verify` call |
+| `SIXTY60_API_KEY_AUTH` | `x-api-key` on the OTP request / verify calls |
+| `SIXTY60_PROFILE_TOKEN` | bearer token on the customer-profile call |
+
+Obtain them by capturing your own app traffic (see
+[AGENTS.md](AGENTS.md#traffic-capture--debugging) — the `x-api-key` headers and
+the profile bearer token). Then provide them one of these ways:
+
+- copy [`.env.example`](.env.example) to `.env` (gitignored) and fill it in —
+  loaded automatically from the working directory;
+- export them in your shell / process manager;
+- Docker: `env_file: .env` or `-e` (never bake into an image);
+- MCP clients: put them in the server's `env` block.
+
+Earlier releases hard-coded these values. They were removed from the source but
+**remain in git history** and are not scrubbed — treat any value found there as
+burned; the service can rotate them at any time.
+
+Optional: `SIXTY60_STATE_KEY` (base64 of 32 bytes) enables AES-256-GCM
+encryption of stored session state.
 
 ## Run
 
@@ -284,3 +321,13 @@ These files are written with owner-only permissions (`0600` on the files, `0700`
 Under `mcp --http`, each tenant gets the same three files under `tenants/<sha256(identity)>/` instead; the CLI and stdio server always use the flat files above. Set `SIXTY60_STATE_KEY` (base64 of 32 bytes) to encrypt all of these at rest with AES-256-GCM.
 
 Logs go to stderr by default; set `SIXTY60_LOG_DIR` to also append them to `<dir>/mcp-server.log`.
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for how to report vulnerabilities and what is
+in/out of scope.
+
+## License
+
+[MIT](LICENSE) © Jonathan Kretzmer. Unofficial project — see the disclaimer at
+the top of this file.

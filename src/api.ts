@@ -1,3 +1,8 @@
+import {
+  SIXTY60_API_KEY,
+  SIXTY60_API_KEY_AUTH,
+  SIXTY60_PROFILE_TOKEN,
+} from "./config";
 import { http } from "./http";
 import { getOrCreateDeviceId, resolveLocation } from "./tenant-state";
 
@@ -8,9 +13,18 @@ const AUTH_BASE = "https://auth.sixty60.co.za";
 const CATALOG_BASE = "https://catalog.sixty60.co.za";
 const ORDERS_BASE = "https://orders-api.sixty60.co.za";
 
-const X_API_KEY = "5y2GIJ8RoP8dm5FxUtsBZ66OfvAZ8Njh3Pjaj9WF";
-const X_API_KEY_AUTH = "HbFTqw6RLe4T3gbgGLb7X2qM08viEJlN3Amyq40z";
-const PROFILE_TOKEN = "G5tmYwwRnpfPmtJ3HT7VYV7C4x86NGDz";
+// The Checkers Sixty60 app API credentials are not bundled. They are read from
+// the environment (SIXTY60_API_KEY / SIXTY60_API_KEY_AUTH /
+// SIXTY60_PROFILE_TOKEN via config.ts) and only the login/OTP/profile calls
+// need them — `required` turns a missing value into an actionable error.
+const required = (value: string | null, name: string): string => {
+  if (!value) {
+    throw new Error(
+      `${name} is not set. The Checkers Sixty60 app API credentials are not bundled — provide them via environment or a local .env file (see .env.example and the README 'Configuration' section).`,
+    );
+  }
+  return value;
+};
 
 const APP_VERSION = "iPadOS 2.0.99 (1769786479)";
 const APP_BUILD = "1769786479";
@@ -255,7 +269,7 @@ export const verifyUser = async (
     method: "GET",
     headers: {
       ...(await baseHeaders(bffToken, phoneE164, [])),
-      "x-api-key": X_API_KEY,
+      "x-api-key": required(SIXTY60_API_KEY, "SIXTY60_API_KEY"),
     },
   });
 
@@ -285,7 +299,7 @@ export const requestOtp = async (
       },
       headers: {
         ...(await baseHeaders(bffToken, phoneE164, [], undefined, customerId)),
-        "x-api-key": X_API_KEY_AUTH,
+        "x-api-key": required(SIXTY60_API_KEY_AUTH, "SIXTY60_API_KEY_AUTH"),
       },
     },
   );
@@ -311,7 +325,7 @@ export const verifyOtp = async (
       method: "POST",
       headers: {
         ...(await baseHeaders(bffToken, phoneE164, [], undefined, customerId)),
-        "x-api-key": X_API_KEY_AUTH,
+        "x-api-key": required(SIXTY60_API_KEY_AUTH, "SIXTY60_API_KEY_AUTH"),
       },
       body: {
         target: {
@@ -346,7 +360,7 @@ export const getCustomerProfile = async (
       method: "GET",
       headers: {
         ...(await baseHeaders(accessToken, phoneE164, [])),
-        Authorization: `Bearer ${PROFILE_TOKEN}`,
+        Authorization: `Bearer ${required(SIXTY60_PROFILE_TOKEN, "SIXTY60_PROFILE_TOKEN")}`,
       },
     },
   );

@@ -1,0 +1,49 @@
+name: security
+
+# Secret scanning (gitleaks) + filesystem vulnerability / misconfig / secret
+# scan (Trivy) on every push and PR.
+#
+# Note: earlier releases hard-coded the Checkers Sixty60 app API keys. Those
+# values remain in git *history* and are treated as burned (see SECURITY.md).
+# gitleaks here only scans the commit range of each push / PR, so historical
+# commits are not re-flagged — but any commit that reintroduces a secret is.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Free for personal + public repos. GitHub organisations additionally
+          # need a GITLEAKS_LICENSE secret.
+
+  trivy-fs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin
+      - name: Trivy filesystem scan
+        run: |
+          trivy fs \
+            --scanners vuln,secret,misconfig \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            .
