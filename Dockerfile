@@ -11,6 +11,12 @@
 # Editing src/ only reruns the compile — the two installs stay cached until
 # package.json / bun.lockb change.
 #
+# Multi-arch: the bun stages are pinned to --platform=$BUILDPLATFORM and run
+# once on the builder's native arch. Their output (compiled dist/, production
+# node_modules) is pure JS with no native addons, so it is architecture-
+# independent and safe to COPY into either the amd64 or arm64 runtime image.
+# Only the `runtime` stage is built per target platform.
+#
 # All base-image versions are pinned below and overridable at build time:
 #   docker build --build-arg NODE_VERSION=24.20.0 -t checkers-sixty60-mcp .
 #
@@ -28,7 +34,7 @@ ARG ALPINE_VERSION=3.23
 ########################################
 # deps — manifest + lockfile cache anchor
 ########################################
-FROM oven/bun:${BUN_VERSION}-alpine AS deps
+FROM --platform=$BUILDPLATFORM oven/bun:${BUN_VERSION}-alpine AS deps
 
 WORKDIR /app
 COPY package.json bun.lockb ./
