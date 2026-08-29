@@ -1,7 +1,70 @@
 import { homedir } from "node:os";
 
-const HOME = process.env.HOME ?? homedir();
+// All persistent state lives under a single base directory so a container can
+// mount one volume for it. Override with SIXTY60_DATA_DIR (e.g. `/data`);
+// defaults to ~/.checkers-sixty60 so plain CLI installs are unchanged.
+const DATA_DIR =
+  process.env.SIXTY60_DATA_DIR?.trim() ||
+  `${process.env.HOME ?? homedir()}/.checkers-sixty60`;
 
-export const AUTH_FILE = `${HOME}/.checkers-sixty60/auth.json`;
-export const DEVICE_FILE = `${HOME}/.checkers-sixty60/device.json`;
-export const SETTINGS_FILE = `${HOME}/.checkers-sixty60/settings.json`;
+export const DATA_DIR_PATH = DATA_DIR;
+export const AUTH_FILE = `${DATA_DIR}/auth.json`;
+export const DEVICE_FILE = `${DATA_DIR}/device.json`;
+export const SETTINGS_FILE = `${DATA_DIR}/settings.json`;
+
+// Per-tenant state (multi-user HTTP hosting) lives under DATA_DIR/tenants/<slug>.
+// The single-user CLI / stdio path keeps writing the flat files above.
+export const TENANTS_DIR_PATH = `${DATA_DIR}/tenants`;
+
+// Optional directory for file logs, kept separate from state so it can be a
+// distinct volume. Unset -> logs go to stderr only (the Docker default,
+// captured by `docker logs`). Set SIXTY60_LOG_DIR to also append to a file.
+const LOG_DIR = process.env.SIXTY60_LOG_DIR?.trim();
+export const LOG_DIR_PATH: string | null = LOG_DIR || null;
+export const LOG_FILE: string | null = LOG_DIR
+  ? `${LOG_DIR}/mcp-server.log`
+  : null;
+
+const port = (name: string): number | null => {
+  const raw = process.env[name]?.trim();
+  if (!raw) {
+    return null;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+    throw new Error(`Invalid ${name}: ${JSON.stringify(raw)}`);
+  }
+  return parsed;
+};
+
+// --- Streamable HTTP MCP hosting (multi-tenant) ------------------------------
+//
+// The CLI and Claude Desktop use the stdio transport and never touch any of
+// this. `checkers-sixty60 mcp --http` (or `dist/mcp-server.js --http`) starts a
+// Streamable HTTP server intended to run behind an MCP gateway (e.g. Obot) that
+// terminates OAuth and forwards the caller's identity.
+
+// Port for the Streamable HTTP server. When set, `--http` uses it; otherwise it
+// falls back to the healthcheck port / 8080.
+export const MCP_HTTP_PORT = port("SIXTY60_MCP_HTTP_PORT");
+
+// Base64-encoded 32-byte key enabling envelope encryption of at-rest tenant
+// state. Unset -> plaintext JSON (historical CLI behaviour).
+export const STATE_KEY_B64 = process.env.SIXTY60_STATE_KEY?.trim() || null;
+
+// How the HTTP server derives a tenant identity from each request:
+//   "jwt"       validate a Bearer token against SIXTY60_OIDC_* and key by `sub`
+//   "proxy"     trust SIXTY60_AUTH_HEADER injected by a front proxy/gateway
+//   "anonymous" single shared "default" tenant (dev only)
+// Unset -> inferred: jwt if SIXTY60_OIDC_* is set, else proxy if the proxy
+// header is trusted, else anonymous if explicitly allowed, else the server
+// refuses to start (fail closed).
+export const AUTH_MODE = process.env.SIXTY60_AUTH_MODE?.trim() || null;
+export const OIDC_ISSUER = process.env.SIXTY60_OIDC_ISSUER?.trim() || null;
+export const OIDC_JWKS_URL = process.env.SIXTY60_OIDC_JWKS_URL?.trim() || null;
+export const OIDC_AUDIENCE = process.env.SIXTY60_OIDC_AUDIENCE?.trim() || null;
+export const AUTH_HEADER = (
+  process.env.SIXTY60_AUTH_HEADER?.trim() || "x-forwarded-user"
+).toLowerCase();
+export const TRUST_PROXY_AUTH = process.env.SIXTY60_TRUST_PROXY_AUTH === "1";
+export const ALLOW_ANONYMOUS = process.env.SIXTY60_ALLOW_ANONYMOUS === "1";

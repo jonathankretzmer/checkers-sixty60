@@ -1,0 +1,92 @@
+# Compose file for the checkers-sixty60 MCP server.
+#
+# Two ways to run it:
+#
+#   mcp       stdio JSON-RPC, single-user. Only useful with a client on stdin:
+#               docker compose run --rm -T mcp
+#             Point a stdio MCP client (Claude Desktop, etc.) at it with:
+#               "command": "docker",
+#               "args": ["compose","-f","/abs/path/docker-compose.yml","run","--rm","-T","mcp"]
+#
+#   mcp-http  Streamable HTTP, multi-tenant. A long-running service intended to
+#             sit behind an MCP gateway (e.g. Obot) that terminates OAuth and
+#             forwards the caller's identity. Start it with:
+#               docker compose up -d mcp-http
+#             then register http://<host>:8080/mcp as a remote / streaming MCP
+#             server in the gateway.
+
+services:
+  mcp:
+    build: .
+    image: checkers-sixty60-mcp:latest
+    init: true                 # reap zombies; clean SIGTERM handling
+    stdin_open: true           # == docker run -i, required for the stdio transport
+    tty: false
+    environment:
+      SIXTY60_DATA_DIR: /data
+      SIXTY60_LOG_DIR: /logs
+      SIXTY60_HEALTHCHECK_PORT: "8080"
+      # SIXTY60_HEALTHCHECK_HOST: "0.0.0.0"
+      # Store/cart context needs a location; persist it once with `set-location`
+      # or pass it per run:
+      # SIXTY60_LATITUDE: "-33.9249"
+      # SIXTY60_LONGITUDE: "18.4241"
+    volumes:
+      - checkers-sixty60-data:/data   # auth.json, device.json, settings.json (dir 0700)
+      - checkers-sixty60-logs:/logs   # mcp-server.log
+    ports:
+      - "8080:8080"            # only needed to reach /health and /ready from the host
+    # The image already defines this HEALTHCHECK; repeated here for visibility.
+    healthcheck:
+      test: ["CMD", "node", "dist/mcp-server.js", "--healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+    # A stdio session ends when its client disconnects; only restart on crash.
+    restart: on-failure
+
+  mcp-http:
+    build: .
+    image: checkers-sixty60-mcp:latest
+    init: true
+    command: ["--http"]        # ENTRYPOINT is `node dist/mcp-server.js`
+    environment:
+      SIXTY60_DATA_DIR: /data
+      SIXTY60_LOG_DIR: /logs
+      SIXTY60_MCP_HTTP_PORT: "8080"   # serves POST /mcp, GET /health, /ready
+
+      # --- Identity: how the caller's tenant is derived (pick one) -----------
+      # A) Gateway forwards a trusted identity header (private network only):
+      SIXTY60_AUTH_MODE: proxy
+      SIXTY60_TRUST_PROXY_AUTH: "1"
+      SIXTY60_AUTH_HEADER: x-forwarded-user
+      # B) Validate the gateway's OAuth2 / OIDC bearer token instead:
+      # SIXTY60_AUTH_MODE: jwt
+      # SIXTY60_OIDC_JWKS_URL: https://issuer.example/.well-known/jwks.json
+      # SIXTY60_OIDC_ISSUER: https://issuer.example/
+      # SIXTY60_OIDC_AUDIENCE: checkers-sixty60-mcp
+      # C) Local dev only — one shared "default" tenant, no auth:
+      # SIXTY60_AUTH_MODE: anonymous
+      # SIXTY60_ALLOW_ANONYMOUS: "1"
+
+      # Encrypt at-rest tenant state (auth tokens etc.). base64 of 32 random
+      # bytes: `openssl rand -base64 32`
+      # SIXTY60_STATE_KEY: "<base64-32-bytes>"
+    volumes:
+      - checkers-sixty60-http-data:/data   # data/tenants/<hash>/{auth,device,settings}.json
+      - checkers-sixty60-logs:/logs
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "node", "dist/mcp-server.js", "--healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  checkers-sixty60-data:
+  checkers-sixty60-http-data:
+  checkers-sixty60-logs:

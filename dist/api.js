@@ -2,7 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.viewCart = exports.removeFromBasket = exports.addToBasket = exports.searchProducts = exports.fetchOrders = exports.completeOtpFlow = exports.startOtpFlow = exports.loginFlow = exports.getStoreIds = exports.getCustomerProfile = exports.verifyOtp = exports.requestOtp = exports.verifyUser = exports.getBffToken = void 0;
 const http_1 = require("./http");
-const storage_1 = require("./storage");
+const tenant_state_1 = require("./tenant-state");
 const BFF_BASE = "https://dc-app-backend-for-frontend.sixty60.co.za";
 const DSL_BASE = "https://api.shopritegroup.co.za/dsl/brands/checkers/countries/ZA";
 const AUTH_BASE = "https://auth.sixty60.co.za";
@@ -15,20 +15,13 @@ const APP_VERSION = "iPadOS 2.0.99 (1769786479)";
 const APP_BUILD = "1769786479";
 const DEFAULT_LATITUDE = -33.9249;
 const DEFAULT_LONGITUDE = 18.4241;
-const parseCoordinate = (value) => {
-    if (!value) {
-        return undefined;
-    }
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
-};
 const getLocation = async () => {
-    const saved = await (0, storage_1.readLocationSettings)();
-    const envLatitude = parseCoordinate(process.env.SIXTY60_LATITUDE);
-    const envLongitude = parseCoordinate(process.env.SIXTY60_LONGITUDE);
+    // Tenant-scoped: saved settings for the active tenant, with env-var override
+    // for the single-user default tenant only (see tenant-state.ts).
+    const loc = await (0, tenant_state_1.resolveLocation)();
     return {
-        latitude: envLatitude ?? saved?.latitude ?? DEFAULT_LATITUDE,
-        longitude: envLongitude ?? saved?.longitude ?? DEFAULT_LONGITUDE,
+        latitude: loc.latitude ?? DEFAULT_LATITUDE,
+        longitude: loc.longitude ?? DEFAULT_LONGITUDE,
     };
 };
 const normalizePhone = (value) => {
@@ -45,7 +38,7 @@ const normalizePhone = (value) => {
     throw new Error("Invalid phone number. Use South African format like 0821234567 or +27821234567.");
 };
 const baseHeaders = async (token, phoneE164, storeIds, userId, customerId, email) => {
-    const deviceId = await (0, storage_1.getOrCreateDeviceId)();
+    const deviceId = await (0, tenant_state_1.getOrCreateDeviceId)();
     const storeIdsJson = JSON.stringify(storeIds);
     const storeIdsCsv = storeIds.join(",");
     const headers = {

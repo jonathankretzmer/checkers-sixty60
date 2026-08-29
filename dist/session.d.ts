@@ -1,5 +1,5 @@
 import { type LoginContext } from "./api";
-import { type AuthState } from "./storage";
+import type { AuthState } from "./storage";
 export declare const toLoginContext: (auth: AuthState) => LoginContext;
 export declare const toAuthState: (context: LoginContext, bffToken: string, otpReference: string) => AuthState;
 export declare const savePendingAuth: (phoneE164: string, bffToken: string, customerId: string, reference: string) => Promise<AuthState>;

@@ -2,9 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.requireAuth = exports.hydrateAuth = exports.withReauthHint = exports.completeOtpForPhone = exports.requestOtpForPhone = exports.savePendingAuth = exports.toAuthState = exports.toLoginContext = void 0;
 const api_1 = require("./api");
-const config_1 = require("./config");
+const context_1 = require("./context");
 const http_1 = require("./http");
-const storage_1 = require("./storage");
 const toLoginContext = (auth) => {
     if (!auth.customerId ||
         !auth.userId ||
@@ -40,17 +39,20 @@ const toAuthState = (context, bffToken, otpReference) => {
 };
 exports.toAuthState = toAuthState;
 const savePendingAuth = async (phoneE164, bffToken, customerId, reference) => {
-    const existing = await (0, storage_1.readJsonFile)(config_1.AUTH_FILE);
-    const next = {
-        ...(existing ?? { phoneE164, savedAt: new Date().toISOString() }),
-        phoneE164,
-        bffToken,
-        customerId,
-        otpReference: reference,
-        savedAt: new Date().toISOString(),
-    };
-    await (0, storage_1.writeJsonFile)(config_1.AUTH_FILE, next);
-    return next;
+    const { store } = (0, context_1.currentTenant)();
+    return store.lock("auth", async () => {
+        const existing = await store.readAuth();
+        const next = {
+            ...(existing ?? { phoneE164, savedAt: new Date().toISOString() }),
+            phoneE164,
+            bffToken,
+            customerId,
+            otpReference: reference,
+            savedAt: new Date().toISOString(),
+        };
+        await store.writeAuth(next);
+        return next;
+    });
 };
 exports.savePendingAuth = savePendingAuth;
 const requestOtpForPhone = async (phoneRaw) => {
@@ -60,18 +62,21 @@ const requestOtpForPhone = async (phoneRaw) => {
 };
 exports.requestOtpForPhone = requestOtpForPhone;
 const completeOtpForPhone = async (phone, otpCode, reference) => {
-    const existing = await (0, storage_1.readJsonFile)(config_1.AUTH_FILE);
-    const phoneFromState = existing?.phoneE164;
-    const bffToken = existing?.bffToken;
-    const customerId = existing?.customerId;
-    const otpReference = reference ?? existing?.otpReference;
-    if (!phoneFromState || !bffToken || !customerId || !otpReference) {
-        throw new Error("Missing pending auth context. Run request-otp first (or pass --reference).");
-    }
-    const login = await (0, api_1.completeOtpFlow)(phone, customerId, bffToken, otpReference, otpCode);
-    const state = (0, exports.toAuthState)(login, bffToken, otpReference);
-    await (0, storage_1.writeJsonFile)(config_1.AUTH_FILE, state);
-    return state;
+    const { store } = (0, context_1.currentTenant)();
+    return store.lock("auth", async () => {
+        const existing = await store.readAuth();
+        const phoneFromState = existing?.phoneE164;
+        const bffToken = existing?.bffToken;
+        const customerId = existing?.customerId;
+        const otpReference = reference ?? existing?.otpReference;
+        if (!phoneFromState || !bffToken || !customerId || !otpReference) {
+            throw new Error("Missing pending auth context. Run request-otp first (or pass --reference).");
+        }
+        const login = await (0, api_1.completeOtpFlow)(phone, customerId, bffToken, otpReference, otpCode);
+        const state = (0, exports.toAuthState)(login, bffToken, otpReference);
+        await store.writeAuth(state);
+        return state;
+    });
 };
 exports.completeOtpForPhone = completeOtpForPhone;
 const REAUTH_MESSAGE = "Access token expired or invalid. Re-authenticate with 'checkers-sixty60 login' (or request_otp/verify_otp).";
@@ -91,7 +96,10 @@ const withReauthHint = async (fn) => {
     }
 };
 exports.withReauthHint = withReauthHint;
+// Fills in any missing derived context (bff token, customer id, profile, store
+// ids) and persists the result. Callers hold the tenant lock (see requireAuth).
 const hydrateAuth = async (auth) => {
+    const { store } = (0, context_1.currentTenant)();
     const next = { ...auth };
     if (!next.bffToken) {
         next.bffToken = await (0, api_1.getBffToken)();
@@ -115,15 +123,18 @@ const hydrateAuth = async (auth) => {
         next.storeIds = await (0, exports.withReauthHint)(() => (0, api_1.getStoreIds)(accessToken, next.phoneE164, userId, customerId, email));
     }
     next.savedAt = new Date().toISOString();
-    await (0, storage_1.writeJsonFile)(config_1.AUTH_FILE, next);
+    await store.writeAuth(next);
     return next;
 };
 exports.hydrateAuth = hydrateAuth;
 const requireAuth = async () => {
-    const auth = await (0, storage_1.readJsonFile)(config_1.AUTH_FILE);
-    if (!auth) {
-        throw new Error("No local auth found. Run login first.");
-    }
-    return (0, exports.hydrateAuth)(auth);
+    const { store } = (0, context_1.currentTenant)();
+    return store.lock("auth", async () => {
+        const auth = await store.readAuth();
+        if (!auth) {
+            throw new Error("No local auth found. Run login first.");
+        }
+        return (0, exports.hydrateAuth)(auth);
+    });
 };
 exports.requireAuth = requireAuth;

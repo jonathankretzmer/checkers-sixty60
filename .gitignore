@@ -1,5 +1,28 @@
+# Dependencies
 node_modules
+
+# Logs / debug output
+*.log
+npm-debug.log*
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Local env / secrets (live tokens belong in ~/.checkers-sixty60, never in-repo)
+.env
+.env.*
+
+# Editor / OS cruft
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.claude/settings.local.json
 
 # mitmproxy traffic captures (contain live tokens/OTPs) - see AGENTS.md
 *.flows
 *.har
+
+# NOTE: dist/ is intentionally committed (the Claude Code plugin runs
+# dist/mcp-server.js with no build step; a pre-commit hook keeps it in sync) -
+# see AGENTS.md "Claude Code Plugin Distribution". Do not add it here.

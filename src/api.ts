@@ -1,5 +1,5 @@
 import { http } from "./http";
-import { getOrCreateDeviceId, readLocationSettings } from "./storage";
+import { getOrCreateDeviceId, resolveLocation } from "./tenant-state";
 
 const BFF_BASE = "https://dc-app-backend-for-frontend.sixty60.co.za";
 const DSL_BASE =
@@ -18,26 +18,17 @@ const APP_BUILD = "1769786479";
 const DEFAULT_LATITUDE = -33.9249;
 const DEFAULT_LONGITUDE = 18.4241;
 
-const parseCoordinate = (value: string | undefined): number | undefined => {
-  if (!value) {
-    return undefined;
-  }
-
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
-};
-
 const getLocation = async (): Promise<{
   latitude: number;
   longitude: number;
 }> => {
-  const saved = await readLocationSettings();
-  const envLatitude = parseCoordinate(process.env.SIXTY60_LATITUDE);
-  const envLongitude = parseCoordinate(process.env.SIXTY60_LONGITUDE);
+  // Tenant-scoped: saved settings for the active tenant, with env-var override
+  // for the single-user default tenant only (see tenant-state.ts).
+  const loc = await resolveLocation();
 
   return {
-    latitude: envLatitude ?? saved?.latitude ?? DEFAULT_LATITUDE,
-    longitude: envLongitude ?? saved?.longitude ?? DEFAULT_LONGITUDE,
+    latitude: loc.latitude ?? DEFAULT_LATITUDE,
+    longitude: loc.longitude ?? DEFAULT_LONGITUDE,
   };
 };
 

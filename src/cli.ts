@@ -11,6 +11,7 @@ import {
   viewCart,
 } from "./api";
 import { AUTH_FILE, SETTINGS_FILE } from "./config";
+import { currentTenant, defaultContext, runWithTenant } from "./context";
 import { toCompactCarts, toCompactOrders, toCompactSearchResults } from "./format";
 import { runMcpServer } from "./mcp-server";
 import {
@@ -21,7 +22,8 @@ import {
   toLoginContext,
   withReauthHint,
 } from "./session";
-import { type AuthState, writeJsonFile, writeLocationSettings } from "./storage";
+import type { AuthState } from "./storage";
+import { writeLocationSettings } from "./tenant-state";
 
 type ParsedCli = {
   command?: string;
@@ -36,8 +38,10 @@ type ParsedCli = {
   qty?: number;
   lat?: number;
   lng?: number;
+  port?: number;
   json: boolean;
   compact: boolean;
+  http: boolean;
   help: boolean;
 };
 
@@ -55,6 +59,7 @@ Usage:
   checkers-sixty60 add-to-basket --product-id <id> [--qty <n>] [--cart-id <id>]
   checkers-sixty60 remove-from-basket --product-id <id> [--qty <n>] [--cart-id <id>]
   checkers-sixty60 mcp                            Run as an MCP server over stdio
+  checkers-sixty60 mcp --http [--port <n>]        Run as a Streamable HTTP MCP server (multi-tenant)
 
 Examples:
   checkers-sixty60 request-otp --phone 0821234567
@@ -104,8 +109,10 @@ const parseCliArgs = (): ParsedCli => {
     qty: getNumberFlag("--qty"),
     lat: getNumberFlag("--lat"),
     lng: getNumberFlag("--lng"),
+    port: getNumberFlag("--port"),
     json: args.includes("--json"),
     compact: args.includes("--compact"),
+    http: args.includes("--http"),
     help: args.includes("--help") || args.includes("-h"),
   };
 };
@@ -198,7 +205,7 @@ const runInteractiveLogin = async (): Promise<AuthState> => {
   );
 
   const state = toAuthState(login, otpStart.bffToken, otpStart.reference);
-  await writeJsonFile(AUTH_FILE, state);
+  await currentTenant().store.writeAuth(state);
   return state;
 };
 
@@ -311,6 +318,11 @@ const main = async (): Promise<void> => {
   }
 
   if (cli.command === "mcp") {
+    if (cli.http) {
+      const { runHttpMcpServer } = await import("./http-server.js");
+      await runHttpMcpServer(cli.port);
+      return;
+    }
     await runMcpServer();
     return;
   }
@@ -397,7 +409,9 @@ const main = async (): Promise<void> => {
   throw new Error(`Unknown command: ${cli.command}\n\n${usage.trim()}`);
 };
 
-main().catch((error: unknown) => {
+// The CLI is always the single-user path; bind the default (flat-file) tenant
+// for the whole run so session/state resolution matches historical behaviour.
+runWithTenant(defaultContext(), main).catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
   console.error(message);
   process.exit(1);

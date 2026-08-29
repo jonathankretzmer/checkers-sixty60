@@ -4,10 +4,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const prompts_1 = require("@inquirer/prompts");
 const api_1 = require("./api");
 const config_1 = require("./config");
+const context_1 = require("./context");
 const format_1 = require("./format");
 const mcp_server_1 = require("./mcp-server");
 const session_1 = require("./session");
-const storage_1 = require("./storage");
+const tenant_state_1 = require("./tenant-state");
 const usage = `
 Usage:
   checkers-sixty60                                Interactive menu
@@ -22,6 +23,7 @@ Usage:
   checkers-sixty60 add-to-basket --product-id <id> [--qty <n>] [--cart-id <id>]
   checkers-sixty60 remove-from-basket --product-id <id> [--qty <n>] [--cart-id <id>]
   checkers-sixty60 mcp                            Run as an MCP server over stdio
+  checkers-sixty60 mcp --http [--port <n>]        Run as a Streamable HTTP MCP server (multi-tenant)
 
 Examples:
   checkers-sixty60 request-otp --phone 0821234567
@@ -66,8 +68,10 @@ const parseCliArgs = () => {
         qty: getNumberFlag("--qty"),
         lat: getNumberFlag("--lat"),
         lng: getNumberFlag("--lng"),
+        port: getNumberFlag("--port"),
         json: args.includes("--json"),
         compact: args.includes("--compact"),
+        http: args.includes("--http"),
         help: args.includes("--help") || args.includes("-h"),
     };
 };
@@ -141,7 +145,7 @@ const runInteractiveLogin = async () => {
     const otp = await (0, prompts_1.password)({ message: "Enter OTP:" });
     const login = await (0, api_1.completeOtpFlow)(otpStart.phoneE164, otpStart.customerId, otpStart.bffToken, otpStart.reference, otp);
     const state = (0, session_1.toAuthState)(login, otpStart.bffToken, otpStart.reference);
-    await (0, storage_1.writeJsonFile)(config_1.AUTH_FILE, state);
+    await (0, context_1.currentTenant)().store.writeAuth(state);
     return state;
 };
 const runOrders = async (jsonOnly, compact) => {
@@ -182,7 +186,7 @@ const runViewCart = async (compact) => {
     console.log(JSON.stringify(compact ? (0, format_1.toCompactCarts)(result) : result, null, 2));
 };
 const runSetLocation = async (lat, lng) => {
-    const saved = await (0, storage_1.writeLocationSettings)(lat, lng);
+    const saved = await (0, tenant_state_1.writeLocationSettings)(lat, lng);
     console.log(`Saved location ${saved.latitude}, ${saved.longitude} to ${config_1.SETTINGS_FILE}`);
     console.log("Env vars SIXTY60_LATITUDE/SIXTY60_LONGITUDE still override saved values when set.");
 };
@@ -212,6 +216,11 @@ const main = async () => {
         return;
     }
     if (cli.command === "mcp") {
+        if (cli.http) {
+            const { runHttpMcpServer } = await import("./http-server.js");
+            await runHttpMcpServer(cli.port);
+            return;
+        }
         await (0, mcp_server_1.runMcpServer)();
         return;
     }
@@ -264,7 +273,9 @@ const main = async () => {
     }
     throw new Error(`Unknown command: ${cli.command}\n\n${usage.trim()}`);
 };
-main().catch((error) => {
+// The CLI is always the single-user path; bind the default (flat-file) tenant
+// for the whole run so session/state resolution matches historical behaviour.
+(0, context_1.runWithTenant)((0, context_1.defaultContext)(), main).catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
     console.error(message);
     process.exit(1);

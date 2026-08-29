@@ -1,3 +1,16 @@
+export declare const DATA_DIR_PATH: string;
 export declare const AUTH_FILE: string;
 export declare const DEVICE_FILE: string;
 export declare const SETTINGS_FILE: string;
+export declare const TENANTS_DIR_PATH: string;
+export declare const LOG_DIR_PATH: string | null;
+export declare const LOG_FILE: string | null;
+export declare const MCP_HTTP_PORT: number | null;
+export declare const STATE_KEY_B64: string | null;
+export declare const AUTH_MODE: string | null;
+export declare const OIDC_ISSUER: string | null;
+export declare const OIDC_JWKS_URL: string | null;
+export declare const OIDC_AUDIENCE: string | null;
+export declare const AUTH_HEADER: string;
+export declare const TRUST_PROXY_AUTH: boolean;
+export declare const ALLOW_ANONYMOUS: boolean;

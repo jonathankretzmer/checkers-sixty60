@@ -1,12 +1,16 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.writeLocationSettings = exports.readLocationSettings = exports.getOrCreateDeviceId = exports.writeJsonFile = exports.readJsonFile = void 0;
+exports.writeTextFileAtomic = exports.readTextFile = void 0;
+const node_crypto_1 = require("node:crypto");
 const promises_1 = require("node:fs/promises");
-const config_1 = require("./config");
-const readJsonFile = async (path) => {
+const node_path_1 = require("node:path");
+// Low-level filesystem primitives. All typed state IO goes through the
+// per-tenant store in `store.ts`, which layers JSON + optional encryption on
+// top of these. State files stay 0600 and their directory 0700 (enforced here,
+// re-applied on every write so files from older versions get locked down too).
+const readTextFile = async (path) => {
     try {
-        const text = await (0, promises_1.readFile)(path, "utf8");
-        return JSON.parse(text);
+        return await (0, promises_1.readFile)(path, "utf8");
     }
     catch (error) {
         const err = error;
@@ -16,45 +20,18 @@ const readJsonFile = async (path) => {
         throw error;
     }
 };
-exports.readJsonFile = readJsonFile;
-const writeJsonFile = async (path, value) => {
-    const lastSlash = path.lastIndexOf("/");
-    const dir = lastSlash > 0 ? path.slice(0, lastSlash) : ".";
+exports.readTextFile = readTextFile;
+const writeTextFileAtomic = async (path, text) => {
+    const dir = (0, node_path_1.dirname)(path);
     await (0, promises_1.mkdir)(dir, { recursive: true, mode: 0o700 });
-    await (0, promises_1.writeFile)(path, JSON.stringify(value, null, 2), {
-        encoding: "utf8",
-        mode: 0o600,
-    });
-    // writeFile's mode option only applies when the file is newly created, so
-    // chmod explicitly to also lock down files written by earlier versions.
+    // Write to a unique temp file in the same directory, then rename over the
+    // target. rename(2) is atomic within a filesystem, so concurrent readers
+    // never observe a half-written file.
+    const tmp = `${path}.${process.pid}.${(0, node_crypto_1.randomBytes)(6).toString("hex")}.tmp`;
+    await (0, promises_1.writeFile)(tmp, text, { encoding: "utf8", mode: 0o600 });
+    await (0, promises_1.chmod)(tmp, 0o600).catch(() => { });
+    await (0, promises_1.rename)(tmp, path);
     await (0, promises_1.chmod)(dir, 0o700).catch(() => { });
     await (0, promises_1.chmod)(path, 0o600).catch(() => { });
 };
-exports.writeJsonFile = writeJsonFile;
-const getOrCreateDeviceId = async () => {
-    const existing = await (0, exports.readJsonFile)(config_1.DEVICE_FILE);
-    if (existing?.deviceId) {
-        return existing.deviceId;
-    }
-    const deviceId = crypto.randomUUID();
-    await (0, exports.writeJsonFile)(config_1.DEVICE_FILE, {
-        deviceId,
-        savedAt: new Date().toISOString(),
-    });
-    return deviceId;
-};
-exports.getOrCreateDeviceId = getOrCreateDeviceId;
-const readLocationSettings = async () => {
-    return (0, exports.readJsonFile)(config_1.SETTINGS_FILE);
-};
-exports.readLocationSettings = readLocationSettings;
-const writeLocationSettings = async (latitude, longitude) => {
-    const settings = {
-        latitude,
-        longitude,
-        savedAt: new Date().toISOString(),
-    };
-    await (0, exports.writeJsonFile)(config_1.SETTINGS_FILE, settings);
-    return settings;
-};
-exports.writeLocationSettings = writeLocationSettings;
+exports.writeTextFileAtomic = writeTextFileAtomic;

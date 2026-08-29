@@ -6,9 +6,13 @@ const mcp_js_1 = require("@modelcontextprotocol/sdk/server/mcp.js");
 const stdio_js_1 = require("@modelcontextprotocol/sdk/server/stdio.js");
 const zod_1 = require("zod");
 const api_1 = require("./api");
+const config_1 = require("./config");
+const context_1 = require("./context");
 const format_1 = require("./format");
+const health_1 = require("./health");
+const logger_1 = require("./logger");
 const session_1 = require("./session");
-const storage_1 = require("./storage");
+const tenant_state_1 = require("./tenant-state");
 const ok = (value) => ({
     content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
 });
@@ -175,7 +179,7 @@ const createServer = () => {
         },
     }, async ({ lat, lng }) => {
         try {
-            const saved = await (0, storage_1.writeLocationSettings)(lat, lng);
+            const saved = await (0, tenant_state_1.writeLocationSettings)(lat, lng);
             return ok(saved);
         }
         catch (error) {
@@ -185,18 +189,92 @@ const createServer = () => {
     return server;
 };
 exports.createServer = createServer;
+const bootedAt = Date.now();
 const runMcpServer = async () => {
-    const server = (0, exports.createServer)();
-    const transport = new stdio_js_1.StdioServerTransport();
-    await server.connect(transport);
+    // stdio is always the single-user path: bind the default (flat-file) tenant
+    // for the life of the process so session.ts / tenant-state.ts resolve state
+    // exactly as the CLI does.
+    await (0, context_1.runWithTenant)((0, context_1.defaultContext)(), runStdioMcpServer);
 };
 exports.runMcpServer = runMcpServer;
+const runStdioMcpServer = async () => {
+    const server = (0, exports.createServer)();
+    // Track the MCP server lifecycle so the health endpoint reports real state
+    // instead of a hard-coded "ok".
+    //
+    // `transportClosed` is a hard failure: the stdio transport tore down (parse
+    // failure it could not recover from, or an explicit close) and the server is
+    // no longer serving. `errorCount` / `lastError` are advisory - the SDK keeps
+    // serving after a bad client frame, so a single protocol error does not by
+    // itself make the process unhealthy, but it is surfaced for debugging.
+    let transportClosed = false;
+    let errorCount = 0;
+    let lastError = null;
+    server.server.onerror = (error) => {
+        errorCount += 1;
+        lastError = error.message;
+        (0, logger_1.log)(`mcp error: ${error.message}`);
+    };
+    server.server.onclose = () => {
+        transportClosed = true;
+        (0, logger_1.log)("mcp transport closed");
+    };
+    // Tool count; guarded in case the SDK internal changes shape.
+    const registered = server._registeredTools;
+    const toolCount = registered && typeof registered === "object"
+        ? Object.keys(registered).length
+        : null;
+    const health = () => {
+        const connected = server.isConnected() && !transportClosed;
+        return {
+            ok: !transportClosed,
+            ready: connected && (toolCount === null || toolCount > 0),
+            detail: {
+                server: "checkers-sixty60",
+                transport: "stdio",
+                pid: process.pid,
+                uptimeSeconds: Math.round((Date.now() - bootedAt) / 1000),
+                mcp: {
+                    connected,
+                    tools: toolCount,
+                    transportClosed,
+                    errorCount,
+                    lastError,
+                },
+            },
+        };
+    };
+    const port = (0, health_1.healthcheckPort)();
+    if (port !== null) {
+        await (0, health_1.startHealthServer)(health, port);
+        (0, logger_1.log)(`health endpoint on :${port} (GET /health, /ready)`);
+    }
+    const transport = new stdio_js_1.StdioServerTransport();
+    await server.connect(transport);
+    (0, logger_1.log)(`mcp server ready (stdio, ${toolCount ?? "?"} tools, data dir ${config_1.DATA_DIR_PATH})`);
+};
 // Allows this module to be launched directly (`node dist/mcp-server.js`),
 // not only via the `checkers-sixty60 mcp` CLI subcommand.
 if (require.main === module) {
-    (0, exports.runMcpServer)().catch((error) => {
+    const fail = (error) => {
         const message = error instanceof Error ? error.message : String(error);
-        console.error(message);
+        (0, logger_1.log)(`fatal: ${message}`);
         process.exit(1);
-    });
+    };
+    if (process.argv.includes("--healthcheck")) {
+        // Docker HEALTHCHECK entrypoint: probe the running server's endpoint. In
+        // --http mode that endpoint is the Streamable HTTP server's port.
+        const port = config_1.MCP_HTTP_PORT ?? (0, health_1.healthcheckPort)() ?? health_1.DEFAULT_HEALTHCHECK_PORT;
+        (0, health_1.runHealthProbe)(port).then((code) => process.exit(code));
+    }
+    else if (process.argv.includes("--http")) {
+        // Multi-tenant Streamable HTTP host (e.g. behind an Obot gateway). Loaded
+        // lazily so the stdio path never pulls in the HTTP stack.
+        import("./http-server.js")
+            .then((m) => m.runHttpMcpServer())
+            .catch(fail);
+    }
+    else {
+        (0, exports.runMcpServer)().catch(fail);
+    }
 }

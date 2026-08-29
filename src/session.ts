@@ -7,9 +7,9 @@ import {
   startOtpFlow,
   verifyUser,
 } from "./api";
-import { AUTH_FILE } from "./config";
+import { currentTenant } from "./context";
 import { HttpError } from "./http";
-import { type AuthState, readJsonFile, writeJsonFile } from "./storage";
+import type { AuthState } from "./storage";
 
 export const toLoginContext = (auth: AuthState): LoginContext => {
   if (
@@ -58,17 +58,20 @@ export const savePendingAuth = async (
   customerId: string,
   reference: string,
 ): Promise<AuthState> => {
-  const existing = await readJsonFile<AuthState>(AUTH_FILE);
-  const next: AuthState = {
-    ...(existing ?? { phoneE164, savedAt: new Date().toISOString() }),
-    phoneE164,
-    bffToken,
-    customerId,
-    otpReference: reference,
-    savedAt: new Date().toISOString(),
-  };
-  await writeJsonFile(AUTH_FILE, next);
-  return next;
+  const { store } = currentTenant();
+  return store.lock("auth", async () => {
+    const existing = await store.readAuth();
+    const next: AuthState = {
+      ...(existing ?? { phoneE164, savedAt: new Date().toISOString() }),
+      phoneE164,
+      bffToken,
+      customerId,
+      otpReference: reference,
+      savedAt: new Date().toISOString(),
+    };
+    await store.writeAuth(next);
+    return next;
+  });
 };
 
 export const requestOtpForPhone = async (
@@ -89,30 +92,33 @@ export const completeOtpForPhone = async (
   otpCode: string,
   reference?: string,
 ): Promise<AuthState> => {
-  const existing = await readJsonFile<AuthState>(AUTH_FILE);
+  const { store } = currentTenant();
+  return store.lock("auth", async () => {
+    const existing = await store.readAuth();
 
-  const phoneFromState = existing?.phoneE164;
-  const bffToken = existing?.bffToken;
-  const customerId = existing?.customerId;
-  const otpReference = reference ?? existing?.otpReference;
+    const phoneFromState = existing?.phoneE164;
+    const bffToken = existing?.bffToken;
+    const customerId = existing?.customerId;
+    const otpReference = reference ?? existing?.otpReference;
 
-  if (!phoneFromState || !bffToken || !customerId || !otpReference) {
-    throw new Error(
-      "Missing pending auth context. Run request-otp first (or pass --reference).",
+    if (!phoneFromState || !bffToken || !customerId || !otpReference) {
+      throw new Error(
+        "Missing pending auth context. Run request-otp first (or pass --reference).",
+      );
+    }
+
+    const login = await completeOtpFlow(
+      phone,
+      customerId,
+      bffToken,
+      otpReference,
+      otpCode,
     );
-  }
 
-  const login = await completeOtpFlow(
-    phone,
-    customerId,
-    bffToken,
-    otpReference,
-    otpCode,
-  );
-
-  const state = toAuthState(login, bffToken, otpReference);
-  await writeJsonFile(AUTH_FILE, state);
-  return state;
+    const state = toAuthState(login, bffToken, otpReference);
+    await store.writeAuth(state);
+    return state;
+  });
 };
 
 const REAUTH_MESSAGE =
@@ -133,7 +139,10 @@ export const withReauthHint = async <T>(fn: () => Promise<T>): Promise<T> => {
   }
 };
 
+// Fills in any missing derived context (bff token, customer id, profile, store
+// ids) and persists the result. Callers hold the tenant lock (see requireAuth).
 export const hydrateAuth = async (auth: AuthState): Promise<AuthState> => {
+  const { store } = currentTenant();
   const next = { ...auth };
 
   if (!next.bffToken) {
@@ -168,15 +177,17 @@ export const hydrateAuth = async (auth: AuthState): Promise<AuthState> => {
   }
 
   next.savedAt = new Date().toISOString();
-  await writeJsonFile(AUTH_FILE, next);
+  await store.writeAuth(next);
   return next;
 };
 
 export const requireAuth = async (): Promise<AuthState> => {
-  const auth = await readJsonFile<AuthState>(AUTH_FILE);
-  if (!auth) {
-    throw new Error("No local auth found. Run login first.");
-  }
-
-  return hydrateAuth(auth);
+  const { store } = currentTenant();
+  return store.lock("auth", async () => {
+    const auth = await store.readAuth();
+    if (!auth) {
+      throw new Error("No local auth found. Run login first.");
+    }
+    return hydrateAuth(auth);
+  });
 };
