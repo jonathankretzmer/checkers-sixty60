@@ -110,5 +110,6 @@ jobs:
           trivy image \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
+            --ignorefile .trivyignore \
             --exit-code 1 \
             "${IMAGE}@${{ steps.build.outputs.digest }}"
