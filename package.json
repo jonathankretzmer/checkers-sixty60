@@ -9,7 +9,7 @@
   },
   "files": ["dist", "README.md"],
   "engines": {
-    "node": ">=18"
+    "node": ">=24"
   },
   "scripts": {
     "dev": "bun run src/cli.ts",
@@ -28,7 +28,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
-    "@types/node": "^22.13.4",
+    "@types/node": "^24.0.0",
     "typescript": "^5.7.3"
   }
 }

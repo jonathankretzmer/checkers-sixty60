@@ -16,8 +16,8 @@ name: publish-image
 # credentials; or keep it private and `docker login ghcr.io` on the host with a
 # read:packages PAT / deploy token.
 #
-# Third-party actions here use major-version tags. To pin them to commit SHAs
-# see the repo hardening notes; Dependabot (github-actions) keeps them current.
+# Actions are pinned to commit SHAs (comment = version); Dependabot's
+# github-actions updater keeps them current.
 
 on:
   push:
@@ -46,15 +46,15 @@ jobs:
       attestations: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       # Skipped automatically for pull_request events (push: false below).
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -62,7 +62,7 @@ jobs:
 
       - name: Derive tags and labels
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.IMAGE }}
           tags: |
@@ -78,7 +78,7 @@ jobs:
 
       - name: Build and push
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           # tsc runs inside the Dockerfile `build` stage, so a type error here
@@ -96,7 +96,7 @@ jobs:
 
       - name: Attest build provenance
         if: github.event_name != 'pull_request'
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.build.outputs.digest }}

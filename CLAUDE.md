@@ -10,7 +10,7 @@
 
 ## Runtime vs. dev-time bun usage
 
-- `bun` is **dev/build tooling only**. The published/compiled CLI (`dist/cli.js`) is plain CommonJS targeting Node >=18 with a `#!/usr/bin/env node` shebang — it has no bun runtime dependency and runs fine under plain `node` or `npx checkers-sixty60`.
+- `bun` is **dev/build tooling only**. The published/compiled CLI (`dist/cli.js`) is plain CommonJS targeting Node >=24 (`package.json` `engines`, Node 24 LTS) with a `#!/usr/bin/env node` shebang — it has no bun runtime dependency and runs fine under plain `node` or `npx checkers-sixty60`. CI smoke-tests `dist/mcp-server.js` under both `node` (24) and `bun`.
 - Don't let that boundary blur: if a new entry point or launch config needs to run without bun installed (e.g. an MCP client config, a plugin manifest, a CI step), point it at the built `dist/` output run via `node`/`npx`, not `bun run src/....ts`.
 - `dist/` is deliberately **committed** (see `.mcp.json` and the "Claude Code Plugin Distribution" section in AGENTS.md) because the Claude Code plugin runs `node ${CLAUDE_PLUGIN_ROOT}/dist/mcp-server.js` directly with no build step. Run `git config core.hooksPath .githooks` once per clone so a pre-commit hook keeps `dist/` in sync whenever `src/` changes.
 
