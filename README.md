@@ -53,6 +53,8 @@ bun run start
 
 ## Install
 
+Requires **Node.js >= 24** (LTS "Krypton").
+
 ```bash
 npm i -g checkers-sixty60
 checkers-sixty60 --help

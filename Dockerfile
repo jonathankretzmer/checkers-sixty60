@@ -12,14 +12,15 @@
 # package.json / bun.lockb change.
 #
 # All base-image versions are pinned below and overridable at build time:
-#   docker build --build-arg NODE_VERSION=22.14.0 -t checkers-sixty60-mcp .
+#   docker build --build-arg NODE_VERSION=24.20.0 -t checkers-sixty60-mcp .
 #
-# For fully reproducible builds, replace the tags with digests, e.g.
+# NODE_VERSION tracks the package.json `engines.node` floor (>=24, Node 24 LTS
+# "Krypton"). For fully reproducible builds, replace the tags with digests, e.g.
 #   FROM oven/bun:1.3.14-alpine@sha256:<digest> AS deps
 
 ARG BUN_VERSION=1.3.14
-ARG NODE_VERSION=22.13.1
-ARG ALPINE_VERSION=3.21
+ARG NODE_VERSION=24.20.0
+ARG ALPINE_VERSION=3.22
 
 ########################################
 # deps — manifest + lockfile cache anchor
