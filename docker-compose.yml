@@ -14,6 +14,10 @@
 #               docker compose up -d mcp-http
 #             then register http://<host>:8080/mcp as a remote / streaming MCP
 #             server in the gateway.
+#
+# Secrets: copy `.env.example` to `.env` (gitignored) and put the Checkers
+# Sixty60 app API credentials + optional SIXTY60_STATE_KEY there. Both services
+# load it via `env_file`. Never commit `.env` or bake these into the image.
 
 services:
   mcp:
@@ -22,6 +26,9 @@ services:
     init: true                 # reap zombies; clean SIGTERM handling
     stdin_open: true           # == docker run -i, required for the stdio transport
     tty: false
+    env_file:
+      - path: .env
+        required: false
     environment:
       SIXTY60_DATA_DIR: /data
       SIXTY60_LOG_DIR: /logs
@@ -51,6 +58,9 @@ services:
     image: checkers-sixty60-mcp:latest
     init: true
     command: ["--http"]        # ENTRYPOINT is `node dist/mcp-server.js`
+    env_file:
+      - path: .env
+        required: false
     environment:
       SIXTY60_DATA_DIR: /data
       SIXTY60_LOG_DIR: /logs

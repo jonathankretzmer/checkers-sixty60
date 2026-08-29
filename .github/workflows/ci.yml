@@ -1,0 +1,55 @@
+name: ci
+
+# Type-check, lint, build, prove the committed dist/ matches src/, and smoke the
+# stdio MCP server. Third-party actions use major-version tags; see
+# SECURITY.md / the repo hardening notes for pinning to commit SHAs.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      - name: Type-check
+        run: bun x tsc -p tsconfig.json --noEmit
+
+      - name: Lint
+        run: bun x biome lint src
+
+      - name: Build
+        run: bun run build
+
+      - name: dist/ is in sync with src/
+        run: |
+          if ! git diff --exit-code -- dist; then
+            echo "::error::dist/ is stale — run 'bun run build' and commit dist/"
+            exit 1
+          fi
+
+      - name: stdio MCP smoke test
+        run: |
+          out=$(printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            | SIXTY60_DATA_DIR="$(mktemp -d)" bun dist/mcp-server.js)
+          echo "$out" | grep -q '"name":"request_otp"' \
+            || { echo "::error::stdio MCP server did not list tools"; echo "$out"; exit 1; }

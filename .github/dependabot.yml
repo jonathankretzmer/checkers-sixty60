@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # npm dependencies. Dependabot updates package.json ranges; refresh the bun
+  # lockfile with `bun install` after merging.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: development
+
+  # Keeps workflow action versions current; use this to move from major-version
+  # tags to pinned commit SHAs and to keep them updated.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly

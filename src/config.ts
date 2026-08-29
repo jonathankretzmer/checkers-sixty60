@@ -68,3 +68,16 @@ export const AUTH_HEADER = (
 ).toLowerCase();
 export const TRUST_PROXY_AUTH = process.env.SIXTY60_TRUST_PROXY_AUTH === "1";
 export const ALLOW_ANONYMOUS = process.env.SIXTY60_ALLOW_ANONYMOUS === "1";
+
+// --- Checkers Sixty60 app API credentials -----------------------------------
+//
+// Values the official mobile app sends on its login / OTP / customer-profile
+// calls. They are NOT bundled with the source — supply them via environment or
+// a local `.env` (see `.env.example`). Only the auth flow reads them; a saved
+// session works without. `api.ts` throws a clear error if one is needed but
+// missing.
+export const SIXTY60_API_KEY = process.env.SIXTY60_API_KEY?.trim() || null;
+export const SIXTY60_API_KEY_AUTH =
+  process.env.SIXTY60_API_KEY_AUTH?.trim() || null;
+export const SIXTY60_PROFILE_TOKEN =
+  process.env.SIXTY60_PROFILE_TOKEN?.trim() || null;

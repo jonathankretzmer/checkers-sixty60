@@ -14,3 +14,6 @@ export declare const OIDC_AUDIENCE: string | null;
 export declare const AUTH_HEADER: string;
 export declare const TRUST_PROXY_AUTH: boolean;
 export declare const ALLOW_ANONYMOUS: boolean;
+export declare const SIXTY60_API_KEY: string | null;
+export declare const SIXTY60_API_KEY_AUTH: string | null;
+export declare const SIXTY60_PROFILE_TOKEN: string | null;

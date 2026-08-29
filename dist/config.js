@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ALLOW_ANONYMOUS = exports.TRUST_PROXY_AUTH = exports.AUTH_HEADER = exports.OIDC_AUDIENCE = exports.OIDC_JWKS_URL = exports.OIDC_ISSUER = exports.AUTH_MODE = exports.STATE_KEY_B64 = exports.MCP_HTTP_PORT = exports.LOG_FILE = exports.LOG_DIR_PATH = exports.TENANTS_DIR_PATH = exports.SETTINGS_FILE = exports.DEVICE_FILE = exports.AUTH_FILE = exports.DATA_DIR_PATH = void 0;
+exports.SIXTY60_PROFILE_TOKEN = exports.SIXTY60_API_KEY_AUTH = exports.SIXTY60_API_KEY = exports.ALLOW_ANONYMOUS = exports.TRUST_PROXY_AUTH = exports.AUTH_HEADER = exports.OIDC_AUDIENCE = exports.OIDC_JWKS_URL = exports.OIDC_ISSUER = exports.AUTH_MODE = exports.STATE_KEY_B64 = exports.MCP_HTTP_PORT = exports.LOG_FILE = exports.LOG_DIR_PATH = exports.TENANTS_DIR_PATH = exports.SETTINGS_FILE = exports.DEVICE_FILE = exports.AUTH_FILE = exports.DATA_DIR_PATH = void 0;
 const node_os_1 = require("node:os");
 // All persistent state lives under a single base directory so a container can
 // mount one volume for it. Override with SIXTY60_DATA_DIR (e.g. `/data`);
@@ -59,3 +59,13 @@ exports.OIDC_AUDIENCE = process.env.SIXTY60_OIDC_AUDIENCE?.trim() || null;
 exports.AUTH_HEADER = (process.env.SIXTY60_AUTH_HEADER?.trim() || "x-forwarded-user").toLowerCase();
 exports.TRUST_PROXY_AUTH = process.env.SIXTY60_TRUST_PROXY_AUTH === "1";
 exports.ALLOW_ANONYMOUS = process.env.SIXTY60_ALLOW_ANONYMOUS === "1";
+// --- Checkers Sixty60 app API credentials -----------------------------------
+//
+// Values the official mobile app sends on its login / OTP / customer-profile
+// calls. They are NOT bundled with the source — supply them via environment or
+// a local `.env` (see `.env.example`). Only the auth flow reads them; a saved
+// session works without. `api.ts` throws a clear error if one is needed but
+// missing.
+exports.SIXTY60_API_KEY = process.env.SIXTY60_API_KEY?.trim() || null;
+exports.SIXTY60_API_KEY_AUTH = process.env.SIXTY60_API_KEY_AUTH?.trim() || null;
+exports.SIXTY60_PROFILE_TOKEN = process.env.SIXTY60_PROFILE_TOKEN?.trim() || null;

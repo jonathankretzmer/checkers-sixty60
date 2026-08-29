@@ -3,7 +3,12 @@ type HttpOptions = {
   headers?: Record<string, string>;
   query?: Record<string, string | boolean | number | undefined>;
   body?: unknown;
+  // Abort the request after this many ms (default 20s). Guards against a slow
+  // or hung upstream pinning a connection / request indefinitely.
+  timeoutMs?: number;
 };
+
+const DEFAULT_TIMEOUT_MS = 20_000;
 
 export class HttpError extends Error {
   status: number;
@@ -41,9 +46,18 @@ export const http = async <T>(
     method,
     headers: options.headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
+    signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
   };
 
-  const response = await fetch(fullUrl, requestInit);
+  let response: Response;
+  try {
+    response = await fetch(fullUrl, requestInit);
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") {
+      throw new Error(`Request to ${new URL(fullUrl).host} timed out`);
+    }
+    throw error;
+  }
   const text = await response.text();
 
   if (!response.ok) {

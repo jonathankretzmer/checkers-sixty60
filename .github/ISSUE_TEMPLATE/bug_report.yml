@@ -1,0 +1,45 @@
+name: Bug report
+description: Something isn't working as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ⚠️ **Do not paste secrets or personal data.** Redact phone numbers,
+        email and delivery addresses, coordinates, OTP codes, and any
+        `accessToken` / `refreshToken` / `bffToken` / `x-api-key` /
+        `SIXTY60_PROFILE_TOKEN` values. Logs and API payloads from this tool
+        contain them.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: npm version, image tag, or commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: How are you running it?
+      options:
+        - CLI
+        - MCP over stdio (Claude Desktop / Claude Code / plugin)
+        - MCP over HTTP (mcp --http)
+        - Docker
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs (redacted)
+      render: shell

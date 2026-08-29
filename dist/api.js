@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.viewCart = exports.removeFromBasket = exports.addToBasket = exports.searchProducts = exports.fetchOrders = exports.completeOtpFlow = exports.startOtpFlow = exports.loginFlow = exports.getStoreIds = exports.getCustomerProfile = exports.verifyOtp = exports.requestOtp = exports.verifyUser = exports.getBffToken = void 0;
+const config_1 = require("./config");
 const http_1 = require("./http");
 const tenant_state_1 = require("./tenant-state");
 const BFF_BASE = "https://dc-app-backend-for-frontend.sixty60.co.za";
@@ -8,9 +9,16 @@ const DSL_BASE = "https://api.shopritegroup.co.za/dsl/brands/checkers/countries/
 const AUTH_BASE = "https://auth.sixty60.co.za";
 const CATALOG_BASE = "https://catalog.sixty60.co.za";
 const ORDERS_BASE = "https://orders-api.sixty60.co.za";
-const X_API_KEY = "5y2GIJ8RoP8dm5FxUtsBZ66OfvAZ8Njh3Pjaj9WF";
-const X_API_KEY_AUTH = "HbFTqw6RLe4T3gbgGLb7X2qM08viEJlN3Amyq40z";
-const PROFILE_TOKEN = "G5tmYwwRnpfPmtJ3HT7VYV7C4x86NGDz";
+// The Checkers Sixty60 app API credentials are not bundled. They are read from
+// the environment (SIXTY60_API_KEY / SIXTY60_API_KEY_AUTH /
+// SIXTY60_PROFILE_TOKEN via config.ts) and only the login/OTP/profile calls
+// need them — `required` turns a missing value into an actionable error.
+const required = (value, name) => {
+    if (!value) {
+        throw new Error(`${name} is not set. The Checkers Sixty60 app API credentials are not bundled — provide them via environment or a local .env file (see .env.example and the README 'Configuration' section).`);
+    }
+    return value;
+};
 const APP_VERSION = "iPadOS 2.0.99 (1769786479)";
 const APP_BUILD = "1769786479";
 const DEFAULT_LATITUDE = -33.9249;
@@ -122,7 +130,7 @@ const verifyUser = async (phoneE164, bffToken) => {
         method: "GET",
         headers: {
             ...(await baseHeaders(bffToken, phoneE164, [])),
-            "x-api-key": X_API_KEY,
+            "x-api-key": required(config_1.SIXTY60_API_KEY, "SIXTY60_API_KEY"),
         },
     });
     const customerId = data.response?.uid;
@@ -141,7 +149,7 @@ const requestOtp = async (phoneRaw, bffToken, customerId) => {
         },
         headers: {
             ...(await baseHeaders(bffToken, phoneE164, [], undefined, customerId)),
-            "x-api-key": X_API_KEY_AUTH,
+            "x-api-key": required(config_1.SIXTY60_API_KEY_AUTH, "SIXTY60_API_KEY_AUTH"),
         },
     });
     const reference = data.response?.reference;
@@ -156,7 +164,7 @@ const verifyOtp = async (phoneE164, reference, otp, bffToken, customerId) => {
         method: "POST",
         headers: {
             ...(await baseHeaders(bffToken, phoneE164, [], undefined, customerId)),
-            "x-api-key": X_API_KEY_AUTH,
+            "x-api-key": required(config_1.SIXTY60_API_KEY_AUTH, "SIXTY60_API_KEY_AUTH"),
         },
         body: {
             target: {
@@ -182,7 +190,7 @@ const getCustomerProfile = async (customerId, accessToken, phoneE164) => {
         method: "GET",
         headers: {
             ...(await baseHeaders(accessToken, phoneE164, [])),
-            Authorization: `Bearer ${PROFILE_TOKEN}`,
+            Authorization: `Bearer ${required(config_1.SIXTY60_PROFILE_TOKEN, "SIXTY60_PROFILE_TOKEN")}`,
         },
     });
     const userId = data.userProfile?.id ?? data.userProfile?.identifier;

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.safeEqual = exports.unseal = exports.seal = exports.encryptionEnabled = void 0;
+exports.unseal = exports.seal = exports.encryptionEnabled = void 0;
 const node_crypto_1 = require("node:crypto");
 const config_1 = require("./config");
 // Optional envelope encryption for at-rest tenant state (auth tokens, device
@@ -88,14 +88,3 @@ const unseal = (raw) => {
     return Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8");
 };
 exports.unseal = unseal;
-// Constant-time string compare, exported for auth-adjacent checks that compare
-// secrets (kept here so there is a single vetted implementation).
-const safeEqual = (a, b) => {
-    const bufA = Buffer.from(a, "utf8");
-    const bufB = Buffer.from(b, "utf8");
-    if (bufA.length !== bufB.length) {
-        return false;
-    }
-    return (0, node_crypto_1.timingSafeEqual)(bufA, bufB);
-};
-exports.safeEqual = safeEqual;

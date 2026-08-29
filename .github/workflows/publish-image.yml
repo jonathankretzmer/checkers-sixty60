@@ -1,0 +1,114 @@
+name: publish-image
+
+# Builds the container image and pushes it to the GitHub Container Registry
+# (ghcr.io/<owner>/checkers-sixty60), so a deployment host can `docker pull` +
+# `docker compose up` (see docker-compose.yml `mcp-http`) instead of building
+# from source.
+#
+# Triggers:
+#   - push to the default branch      -> tags: `latest`, `main`, `sha-<short>`
+#   - push of a `v*` tag              -> tags: `1.2.3`, `1.2`, `sha-<short>`
+#   - pull request                    -> build only, no push (correctness gate)
+#   - manual (workflow_dispatch)      -> build + push from the selected branch
+#
+# First run creates a PRIVATE package. Make it public once (repo -> Packages ->
+# the image -> Package settings -> Change visibility) to pull without
+# credentials; or keep it private and `docker login ghcr.io` on the host with a
+# read:packages PAT / deploy token.
+#
+# Third-party actions here use major-version tags. To pin them to commit SHAs
+# see the repo hardening notes; Dependabot (github-actions) keeps them current.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Weekly rebuild so base-image CVE fixes land in :latest without a code push.
+    - cron: "37 4 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Skipped automatically for pull_request events (push: false below).
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+          labels: |
+            org.opencontainers.image.title=checkers-sixty60
+            org.opencontainers.image.description=Checkers Sixty60 MCP server (stdio + multi-tenant Streamable HTTP)
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # tsc runs inside the Dockerfile `build` stage, so a type error here
+          # fails the image build — this doubles as the correctness gate.
+          platforms: linux/amd64
+          # Add linux/arm64 here for ARM hosts (slower: emulated).
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: true
+          sbom: true
+          cache-from: type=gha
+          # Don't let a fork PR write to the shared build cache (poisoning).
+          cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,mode=max' || '' }}
+
+      - name: Attest build provenance
+        if: github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Scan pushed image (Trivy)
+        if: github.event_name != 'pull_request'
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            "${IMAGE}@${{ steps.build.outputs.digest }}"
