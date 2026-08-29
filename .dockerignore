@@ -1,0 +1,28 @@
+# Build context is intentionally minimal: the image rebuilds dist/ from src/.
+node_modules
+dist
+.git
+.githooks
+.claude
+.claude-plugin
+docs
+skills
+*.md
+!README.md
+
+# npm lockfile is unused here — the image builds with bun.lockb
+package-lock.json
+
+# never ship traffic captures (live tokens/OTPs)
+*.flows
+*.har
+
+# local env / editor cruft
+.env
+.env.*
+.vscode
+.idea
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.*.yml

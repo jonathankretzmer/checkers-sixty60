@@ -1,5 +1,6 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { DEVICE_FILE, SETTINGS_FILE } from "./config";
+import { randomBytes } from "node:crypto";
+import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 
 export type AuthState = {
   phoneE164: string;
@@ -14,7 +15,7 @@ export type AuthState = {
   savedAt: string;
 };
 
-type DeviceState = {
+export type DeviceState = {
   deviceId: string;
   savedAt: string;
 };
@@ -25,58 +26,38 @@ export type LocationSettings = {
   savedAt: string;
 };
 
-export const readJsonFile = async <T>(path: string): Promise<T | null> => {
+// Low-level filesystem primitives. All typed state IO goes through the
+// per-tenant store in `store.ts`, which layers JSON + optional encryption on
+// top of these. State files stay 0600 and their directory 0700 (enforced here,
+// re-applied on every write so files from older versions get locked down too).
+
+export const readTextFile = async (path: string): Promise<string | null> => {
   try {
-    const text = await readFile(path, "utf8");
-    return JSON.parse(text) as T;
+    return await readFile(path, "utf8");
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
     if (err.code === "ENOENT") {
       return null;
     }
-
     throw error;
   }
 };
 
-export const writeJsonFile = async (
+export const writeTextFileAtomic = async (
   path: string,
-  value: unknown,
+  text: string,
 ): Promise<void> => {
-  const lastSlash = path.lastIndexOf("/");
-  const dir = lastSlash > 0 ? path.slice(0, lastSlash) : ".";
-  await mkdir(dir, { recursive: true });
-  await writeFile(path, JSON.stringify(value, null, 2), "utf8");
-};
+  const dir = dirname(path);
+  await mkdir(dir, { recursive: true, mode: 0o700 });
 
-export const getOrCreateDeviceId = async (): Promise<string> => {
-  const existing = await readJsonFile<DeviceState>(DEVICE_FILE);
-  if (existing?.deviceId) {
-    return existing.deviceId;
-  }
+  // Write to a unique temp file in the same directory, then rename over the
+  // target. rename(2) is atomic within a filesystem, so concurrent readers
+  // never observe a half-written file.
+  const tmp = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+  await writeFile(tmp, text, { encoding: "utf8", mode: 0o600 });
+  await chmod(tmp, 0o600).catch(() => {});
+  await rename(tmp, path);
 
-  const deviceId = crypto.randomUUID();
-  await writeJsonFile(DEVICE_FILE, {
-    deviceId,
-    savedAt: new Date().toISOString(),
-  });
-  return deviceId;
-};
-
-export const readLocationSettings =
-  async (): Promise<LocationSettings | null> => {
-    return readJsonFile<LocationSettings>(SETTINGS_FILE);
-  };
-
-export const writeLocationSettings = async (
-  latitude: number,
-  longitude: number,
-): Promise<LocationSettings> => {
-  const settings: LocationSettings = {
-    latitude,
-    longitude,
-    savedAt: new Date().toISOString(),
-  };
-  await writeJsonFile(SETTINGS_FILE, settings);
-  return settings;
+  await chmod(dir, 0o700).catch(() => {});
+  await chmod(path, 0o600).catch(() => {});
 };

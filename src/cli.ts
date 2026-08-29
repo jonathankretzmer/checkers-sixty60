@@ -2,26 +2,28 @@
 
 import { input, password, select } from "@inquirer/prompts";
 import {
-  type LoginContext,
   addToBasket,
   completeOtpFlow,
   fetchOrders,
-  getBffToken,
-  getCustomerProfile,
-  getStoreIds,
   removeFromBasket,
   searchProducts,
   startOtpFlow,
-  verifyUser,
   viewCart,
 } from "./api";
 import { AUTH_FILE, SETTINGS_FILE } from "./config";
+import { currentTenant, defaultContext, runWithTenant } from "./context";
+import { toCompactCarts, toCompactOrders, toCompactSearchResults } from "./format";
+import { runMcpServer } from "./mcp-server";
 import {
-  type AuthState,
-  readJsonFile,
-  writeJsonFile,
-  writeLocationSettings,
-} from "./storage";
+  completeOtpForPhone,
+  requestOtpForPhone,
+  requireAuth,
+  toAuthState,
+  toLoginContext,
+  withReauthHint,
+} from "./session";
+import type { AuthState } from "./storage";
+import { writeLocationSettings } from "./tenant-state";
 
 type ParsedCli = {
   command?: string;
@@ -36,8 +38,10 @@ type ParsedCli = {
   qty?: number;
   lat?: number;
   lng?: number;
+  port?: number;
   json: boolean;
   compact: boolean;
+  http: boolean;
   help: boolean;
 };
 
@@ -50,10 +54,12 @@ Usage:
   checkers-sixty60 login --phone <phone> --otp <code> [--reference <ref>]
   checkers-sixty60 orders [--json] [--compact]
   checkers-sixty60 set-location --lat <value> --lng <value>
-  checkers-sixty60 view-cart
+  checkers-sixty60 view-cart [--compact]
   checkers-sixty60 search --query <text> [--page <n>] [--size <n>] [--compact]
   checkers-sixty60 add-to-basket --product-id <id> [--qty <n>] [--cart-id <id>]
   checkers-sixty60 remove-from-basket --product-id <id> [--qty <n>] [--cart-id <id>]
+  checkers-sixty60 mcp                            Run as an MCP server over stdio
+  checkers-sixty60 mcp --http [--port <n>]        Run as a Streamable HTTP MCP server (multi-tenant)
 
 Examples:
   checkers-sixty60 request-otp --phone 0821234567
@@ -61,7 +67,7 @@ Examples:
   checkers-sixty60 orders --json
   checkers-sixty60 orders --compact
   checkers-sixty60 set-location --lat -26.2041 --lng 28.0473
-  checkers-sixty60 view-cart
+  checkers-sixty60 view-cart --compact
   checkers-sixty60 search --query milk --compact
   checkers-sixty60 add-to-basket --product-id 5d3af63cf434cf8420737e3e --qty 1
   checkers-sixty60 remove-from-basket --product-id 5d3af63cf434cf8420737e3e
@@ -103,152 +109,12 @@ const parseCliArgs = (): ParsedCli => {
     qty: getNumberFlag("--qty"),
     lat: getNumberFlag("--lat"),
     lng: getNumberFlag("--lng"),
+    port: getNumberFlag("--port"),
     json: args.includes("--json"),
     compact: args.includes("--compact"),
+    http: args.includes("--http"),
     help: args.includes("--help") || args.includes("-h"),
   };
-};
-
-type CompactOrder = {
-  id: string;
-  reference: string;
-  status: string;
-  totalPayable: number;
-  createdOn: number;
-};
-
-const toCompactOrders = (payload: unknown): CompactOrder[] => {
-  if (typeof payload !== "object" || payload === null) {
-    return [];
-  }
-
-  const root = payload as { inactiveOrderGroupSummaries?: unknown };
-  if (!Array.isArray(root.inactiveOrderGroupSummaries)) {
-    return [];
-  }
-
-  return root.inactiveOrderGroupSummaries
-    .map((item) => {
-      if (typeof item !== "object" || item === null) {
-        return null;
-      }
-
-      const order = item as {
-        id?: unknown;
-        reference?: unknown;
-        reducedStatus?: unknown;
-        customerStatus?: unknown;
-        totals?: { totalPayable?: unknown };
-        createdOn?: unknown;
-      };
-
-      return {
-        id: String(order.id ?? ""),
-        reference: String(order.reference ?? ""),
-        status: String(
-          order.reducedStatus ?? order.customerStatus ?? "unknown",
-        ),
-        totalPayable: Number(order.totals?.totalPayable ?? 0),
-        createdOn: Number(order.createdOn ?? 0),
-      };
-    })
-    .filter((order): order is CompactOrder => Boolean(order?.id));
-};
-
-const toCompactSearchResults = (payload: unknown) => {
-  if (typeof payload !== "object" || payload === null) {
-    return [];
-  }
-
-  const root = payload as {
-    products?: Array<{
-      id?: string;
-      name?: string;
-      brandName?: string;
-      priceWithoutDecimal?: number;
-      oldPrice?: number;
-      discount?: number;
-      priceFactor?: number;
-      currency?: string;
-      storeId?: string;
-      serviceOptionId?: string;
-      isStockAvailable?: boolean;
-    }>;
-  };
-
-  return (root.products ?? []).map((product) => ({
-    id: product.id,
-    name: product.name,
-    brand: product.brandName,
-    price: product.priceWithoutDecimal,
-    oldPrice: product.oldPrice,
-    discount: product.discount,
-    priceFactor: product.priceFactor,
-    currency: product.currency,
-    storeId: product.storeId,
-    serviceOptionId: product.serviceOptionId,
-    inStock: product.isStockAvailable,
-  }));
-};
-
-const toLoginContext = (auth: AuthState): LoginContext => {
-  if (
-    !auth.customerId ||
-    !auth.userId ||
-    !auth.email ||
-    !auth.userAccessToken ||
-    !auth.storeIds
-  ) {
-    throw new Error("Auth context is incomplete. Run login first.");
-  }
-
-  return {
-    phoneE164: auth.phoneE164,
-    customerId: auth.customerId,
-    userId: auth.userId,
-    email: auth.email,
-    accessToken: auth.userAccessToken,
-    refreshToken: auth.refreshToken,
-    storeIds: auth.storeIds,
-  };
-};
-
-const toAuthState = (
-  context: LoginContext,
-  bffToken: string,
-  otpReference: string,
-): AuthState => {
-  return {
-    phoneE164: context.phoneE164,
-    bffToken,
-    userAccessToken: context.accessToken,
-    refreshToken: context.refreshToken,
-    otpReference,
-    customerId: context.customerId,
-    userId: context.userId,
-    email: context.email,
-    storeIds: context.storeIds,
-    savedAt: new Date().toISOString(),
-  };
-};
-
-const savePendingAuth = async (
-  phoneE164: string,
-  bffToken: string,
-  customerId: string,
-  reference: string,
-): Promise<AuthState> => {
-  const existing = await readJsonFile<AuthState>(AUTH_FILE);
-  const next: AuthState = {
-    ...(existing ?? { phoneE164, savedAt: new Date().toISOString() }),
-    phoneE164,
-    bffToken,
-    customerId,
-    otpReference: reference,
-    savedAt: new Date().toISOString(),
-  };
-  await writeJsonFile(AUTH_FILE, next);
-  return next;
 };
 
 const ensurePhone = (phone?: string): string => {
@@ -318,46 +184,9 @@ const ensureLongitude = (value?: number): number => {
 };
 
 const startOtpForPhone = async (phone: string): Promise<void> => {
-  const started = await startOtpFlow(phone);
-  await savePendingAuth(
-    started.phoneE164,
-    started.bffToken,
-    started.customerId,
-    started.reference,
-  );
-  console.log(`OTP sent to ${started.phoneE164}`);
-  console.log(`Reference: ${started.reference}`);
-};
-
-const completeOtpForPhone = async (
-  phone: string,
-  otpCode: string,
-  reference?: string,
-): Promise<AuthState> => {
-  const existing = await readJsonFile<AuthState>(AUTH_FILE);
-
-  const phoneFromState = existing?.phoneE164;
-  const bffToken = existing?.bffToken;
-  const customerId = existing?.customerId;
-  const otpReference = reference ?? existing?.otpReference;
-
-  if (!phoneFromState || !bffToken || !customerId || !otpReference) {
-    throw new Error(
-      "Missing pending auth context. Run request-otp first (or pass --reference).",
-    );
-  }
-
-  const login = await completeOtpFlow(
-    phone,
-    customerId,
-    bffToken,
-    otpReference,
-    otpCode,
-  );
-
-  const state = toAuthState(login, bffToken, otpReference);
-  await writeJsonFile(AUTH_FILE, state);
-  return state;
+  const result = await requestOtpForPhone(phone);
+  console.log(`OTP sent to ${result.phoneE164}`);
+  console.log(`Reference: ${result.reference}`);
 };
 
 const runInteractiveLogin = async (): Promise<AuthState> => {
@@ -376,62 +205,16 @@ const runInteractiveLogin = async (): Promise<AuthState> => {
   );
 
   const state = toAuthState(login, otpStart.bffToken, otpStart.reference);
-  await writeJsonFile(AUTH_FILE, state);
+  await currentTenant().store.writeAuth(state);
   return state;
-};
-
-const hydrateAuth = async (auth: AuthState): Promise<AuthState> => {
-  const next = { ...auth };
-
-  if (!next.bffToken) {
-    next.bffToken = await getBffToken();
-  }
-
-  if (!next.customerId) {
-    next.customerId = await verifyUser(next.phoneE164, next.bffToken);
-  }
-
-  if (!next.userAccessToken) {
-    throw new Error("Missing user access token. Run login first.");
-  }
-
-  if (!next.userId || !next.email) {
-    const profile = await getCustomerProfile(
-      next.customerId,
-      next.userAccessToken,
-      next.phoneE164,
-    );
-    next.userId = profile.userId;
-    next.email = profile.email;
-  }
-
-  if (!next.storeIds || next.storeIds.length === 0) {
-    next.storeIds = await getStoreIds(
-      next.userAccessToken,
-      next.phoneE164,
-      next.userId,
-      next.customerId,
-      next.email,
-    );
-  }
-
-  next.savedAt = new Date().toISOString();
-  await writeJsonFile(AUTH_FILE, next);
-  return next;
 };
 
 const runOrders = async (
   jsonOnly: boolean,
   compact: boolean,
 ): Promise<void> => {
-  let auth = await readJsonFile<AuthState>(AUTH_FILE);
-  if (!auth) {
-    throw new Error("No local auth found. Run login first.");
-  }
-
-  auth = await hydrateAuth(auth);
-
-  const orders = await fetchOrders(toLoginContext(auth));
+  const auth = await requireAuth();
+  const orders = await withReauthHint(() => fetchOrders(toLoginContext(auth)));
 
   if (compact) {
     const compactOrders = toCompactOrders(orders);
@@ -451,14 +234,10 @@ const runSearch = async (
   size: number,
   compact: boolean,
 ): Promise<void> => {
-  let auth = await readJsonFile<AuthState>(AUTH_FILE);
-  if (!auth) {
-    throw new Error("No local auth found. Run login first.");
-  }
-
-  auth = await hydrateAuth(auth);
-
-  const results = await searchProducts(toLoginContext(auth), query, page, size);
+  const auth = await requireAuth();
+  const results = await withReauthHint(() =>
+    searchProducts(toLoginContext(auth), query, page, size),
+  );
   if (compact) {
     console.log(JSON.stringify(toCompactSearchResults(results), null, 2));
     return;
@@ -472,17 +251,9 @@ const runAddToBasket = async (
   qty: number,
   cartId?: string,
 ): Promise<void> => {
-  let auth = await readJsonFile<AuthState>(AUTH_FILE);
-  if (!auth) {
-    throw new Error("No local auth found. Run login first.");
-  }
-
-  auth = await hydrateAuth(auth);
-  const result = await addToBasket(
-    toLoginContext(auth),
-    productId,
-    qty,
-    cartId,
+  const auth = await requireAuth();
+  const result = await withReauthHint(() =>
+    addToBasket(toLoginContext(auth), productId, qty, cartId),
   );
   console.log(JSON.stringify(result, null, 2));
 };
@@ -492,30 +263,17 @@ const runRemoveFromBasket = async (
   qty: number | undefined,
   cartId?: string,
 ): Promise<void> => {
-  let auth = await readJsonFile<AuthState>(AUTH_FILE);
-  if (!auth) {
-    throw new Error("No local auth found. Run login first.");
-  }
-
-  auth = await hydrateAuth(auth);
-  const result = await removeFromBasket(
-    toLoginContext(auth),
-    productId,
-    qty,
-    cartId,
+  const auth = await requireAuth();
+  const result = await withReauthHint(() =>
+    removeFromBasket(toLoginContext(auth), productId, qty, cartId),
   );
   console.log(JSON.stringify(result, null, 2));
 };
 
-const runViewCart = async (): Promise<void> => {
-  let auth = await readJsonFile<AuthState>(AUTH_FILE);
-  if (!auth) {
-    throw new Error("No local auth found. Run login first.");
-  }
-
-  auth = await hydrateAuth(auth);
-  const result = await viewCart(toLoginContext(auth));
-  console.log(JSON.stringify(result, null, 2));
+const runViewCart = async (compact: boolean): Promise<void> => {
+  const auth = await requireAuth();
+  const result = await withReauthHint(() => viewCart(toLoginContext(auth)));
+  console.log(JSON.stringify(compact ? toCompactCarts(result) : result, null, 2));
 };
 
 const runSetLocation = async (lat: number, lng: number): Promise<void> => {
@@ -556,6 +314,16 @@ const main = async (): Promise<void> => {
 
   if (!cli.command) {
     await runInteractiveMenu();
+    return;
+  }
+
+  if (cli.command === "mcp") {
+    if (cli.http) {
+      const { runHttpMcpServer } = await import("./http-server.js");
+      await runHttpMcpServer(cli.port);
+      return;
+    }
+    await runMcpServer();
     return;
   }
 
@@ -606,7 +374,7 @@ const main = async (): Promise<void> => {
   }
 
   if (cli.command === "view-cart") {
-    await runViewCart();
+    await runViewCart(cli.compact);
     return;
   }
 
@@ -641,7 +409,9 @@ const main = async (): Promise<void> => {
   throw new Error(`Unknown command: ${cli.command}\n\n${usage.trim()}`);
 };
 
-main().catch((error: unknown) => {
+// The CLI is always the single-user path; bind the default (flat-file) tenant
+// for the whole run so session/state resolution matches historical behaviour.
+runWithTenant(defaultContext(), main).catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
   console.error(message);
   process.exit(1);

@@ -1,0 +1,8 @@
+#!/bin/sh
+# dist/ is committed (see .mcp.json - the Claude Code plugin runs it directly,
+# with no install/build step). Keep it in sync whenever src/ changes.
+if git diff --cached --name-only | grep -q '^src/'; then
+  echo "src/ changed - rebuilding dist/ before commit..."
+  bun run build || exit 1
+  git add dist
+fi
