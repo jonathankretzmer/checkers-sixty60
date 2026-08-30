@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.viewCart = exports.removeFromBasket = exports.addToBasket = exports.searchProducts = exports.fetchOrders = exports.completeOtpFlow = exports.startOtpFlow = exports.loginFlow = exports.getStoreIds = exports.getCustomerProfile = exports.verifyOtp = exports.requestOtp = exports.verifyUser = exports.getBffToken = void 0;
+exports.viewCart = exports.removeFromBasket = exports.addToBasket = exports.searchProducts = exports.fetchOrders = exports.resolveDeliveryAddress = exports.fetchAddresses = exports.normalizeAddress = exports.completeOtpFlow = exports.startOtpFlow = exports.loginFlow = exports.getStoreIds = exports.getCustomerProfile = exports.verifyOtp = exports.requestOtp = exports.verifyUser = exports.getBffToken = void 0;
 const config_1 = require("./config");
 const http_1 = require("./http");
 const tenant_state_1 = require("./tenant-state");
@@ -21,16 +21,9 @@ const required = (value, name) => {
 };
 const APP_VERSION = "iPadOS 2.0.99 (1769786479)";
 const APP_BUILD = "1769786479";
-const DEFAULT_LATITUDE = -33.9249;
-const DEFAULT_LONGITUDE = 18.4241;
-const getLocation = async () => {
-    // Tenant-scoped: saved settings for the active tenant, with env-var override
-    // for the single-user default tenant only (see tenant-state.ts).
-    const loc = await (0, tenant_state_1.resolveLocation)();
-    return {
-        latitude: loc.latitude ?? DEFAULT_LATITUDE,
-        longitude: loc.longitude ?? DEFAULT_LONGITUDE,
-    };
+const getLocation = async (ctx) => {
+    const address = await (0, exports.resolveDeliveryAddress)(ctx);
+    return { latitude: address.latitude, longitude: address.longitude };
 };
 const normalizePhone = (value) => {
     const digits = value.replace(/\D+/g, "");
@@ -202,7 +195,13 @@ const getCustomerProfile = async (customerId, accessToken, phoneE164) => {
 };
 exports.getCustomerProfile = getCustomerProfile;
 const getStoreIds = async (accessToken, phoneE164, userId, customerId, email) => {
-    const location = await getLocation();
+    const location = await getLocation({
+        accessToken,
+        phoneE164,
+        userId,
+        customerId,
+        email,
+    });
     const data = await (0, http_1.http)(`${CATALOG_BASE}/api/v3/store-contexts`, {
         method: "POST",
         headers: await baseHeaders(accessToken, phoneE164, [], userId, customerId, email),
@@ -266,6 +265,62 @@ const completeOtpFlow = async (phoneE164, customerId, bffToken, otpReference, ot
     };
 };
 exports.completeOtpFlow = completeOtpFlow;
+const pickCoord = (...candidates) => {
+    for (const value of candidates) {
+        if (typeof value === "number" && Number.isFinite(value)) {
+            return value;
+        }
+    }
+    return undefined;
+};
+const normalizeAddress = (raw) => ({
+    id: raw.identifier ?? raw._id ?? "",
+    label: raw.name,
+    type: raw.type,
+    fullAddress: raw.fullAddress,
+    suburb: raw.suburb,
+    city: raw.city,
+    latitude: pickCoord(raw.coordinates?.latitude, raw.geoLocation?.latitude, raw.latitude),
+    longitude: pickCoord(raw.coordinates?.longitude, raw.geoLocation?.longitude, raw.longitude),
+    active: raw.active !== false,
+    lastUsedOn: typeof raw.lastUsedOn === "number" ? raw.lastUsedOn : undefined,
+});
+exports.normalizeAddress = normalizeAddress;
+// Read-only: list the delivery addresses already saved on the Checkers account.
+// The path takes the mongo profile id (context.userId), NOT the short
+// customer-id, and authenticates with the ordinary user access token.
+// Creating / editing addresses is intentionally left to the official app.
+const fetchAddresses = async (context) => {
+    const data = await (0, http_1.http)(`${AUTH_BASE}/customers/${context.userId}/addresses`, {
+        method: "GET",
+        headers: await baseHeaders(context.accessToken, context.phoneE164, context.storeIds ?? [], context.userId, context.customerId, context.email),
+    });
+    return data.items ?? [];
+};
+exports.fetchAddresses = fetchAddresses;
+// The single source of delivery coordinates: whichever saved Checkers address
+// is pinned (settings.json), else the account's most-recently-used one. Throws
+// an actionable error if the account has no usable address — there is no
+// coordinate fallback by design.
+const resolveDeliveryAddress = async (context) => {
+    const pinnedId = await (0, tenant_state_1.readSelectedAddressId)();
+    const usable = (await (0, exports.fetchAddresses)(context))
+        .map(exports.normalizeAddress)
+        .filter((a) => a.latitude !== undefined && a.longitude !== undefined);
+    if (usable.length === 0) {
+        throw new Error("No delivery address with coordinates is saved on this Checkers account. Add one in the Sixty60 app, then retry.");
+    }
+    if (pinnedId) {
+        const chosen = usable.find((a) => a.id === pinnedId);
+        if (!chosen) {
+            throw new Error(`Pinned delivery address ${JSON.stringify(pinnedId)} is no longer on the Checkers account. Run 'checkers-sixty60 addresses' to list current ones, then 'checkers-sixty60 set-location --address-id <id>' or '--last-used'.`);
+        }
+        return { ...chosen, selection: "pinned" };
+    }
+    const mostRecent = [...usable].sort((a, b) => (b.lastUsedOn ?? 0) - (a.lastUsedOn ?? 0))[0];
+    return { ...mostRecent, selection: "last-used" };
+};
+exports.resolveDeliveryAddress = resolveDeliveryAddress;
 const fetchOrders = async (context) => {
     return (0, http_1.http)(`${ORDERS_BASE}/api/v2/orders/history`, {
         method: "GET",
@@ -318,7 +373,7 @@ const searchProducts = async (context, query, page = 0, pageSize = 20) => {
 };
 exports.searchProducts = searchProducts;
 const addToBasket = async (context, productId, quantity = 1, cartId) => {
-    const location = await getLocation();
+    const location = await getLocation(context);
     const storeContextResponse = await (0, http_1.http)(`${CATALOG_BASE}/api/v3/store-contexts`, {
         method: "POST",
         headers: await baseHeaders(context.accessToken, context.phoneE164, [], context.userId, context.customerId, context.email),
@@ -485,7 +540,7 @@ const addToBasket = async (context, productId, quantity = 1, cartId) => {
 };
 exports.addToBasket = addToBasket;
 const removeFromBasket = async (context, productId, quantity, cartId) => {
-    const location = await getLocation();
+    const location = await getLocation(context);
     const storeContextResponse = await (0, http_1.http)(`${CATALOG_BASE}/api/v3/store-contexts`, {
         method: "POST",
         headers: await baseHeaders(context.accessToken, context.phoneE164, [], context.userId, context.customerId, context.email),
@@ -604,7 +659,7 @@ const removeFromBasket = async (context, productId, quantity, cartId) => {
 };
 exports.removeFromBasket = removeFromBasket;
 const viewCart = async (context) => {
-    const location = await getLocation();
+    const location = await getLocation(context);
     const storeContextResponse = await (0, http_1.http)(`${CATALOG_BASE}/api/v3/store-contexts`, {
         method: "POST",
         headers: await baseHeaders(context.accessToken, context.phoneE164, [], context.userId, context.customerId, context.email),

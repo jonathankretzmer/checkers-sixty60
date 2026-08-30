@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 export type AuthState = {
@@ -20,9 +20,11 @@ export type DeviceState = {
   savedAt: string;
 };
 
-export type LocationSettings = {
-  latitude: number;
-  longitude: number;
+// The delivery address the CLI/MCP server should use, pinned to one of the
+// addresses saved on the Checkers account. Absent file = use the account's
+// most-recently-used address. No coordinates are stored locally.
+export type AddressSelection = {
+  addressId: string;
   savedAt: string;
 };
 
@@ -60,4 +62,15 @@ export const writeTextFileAtomic = async (
 
   await chmod(dir, 0o700).catch(() => {});
   await chmod(path, 0o600).catch(() => {});
+};
+
+export const removeFile = async (path: string): Promise<void> => {
+  try {
+    await rm(path);
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code !== "ENOENT") {
+      throw error;
+    }
+  }
 };

@@ -21,7 +21,10 @@ Usage:
   checkers-sixty60 verify-otp --phone <phone> --otp <code> [--reference <ref>]
   checkers-sixty60 login --phone <phone> --otp <code> [--reference <ref>]
   checkers-sixty60 orders [--json] [--compact]
-  checkers-sixty60 set-location --lat <value> --lng <value>
+  checkers-sixty60 config                         Show local config (phone, pinned address, ...) as JSON - no secrets
+  checkers-sixty60 addresses [--json]             List delivery addresses saved on the Checkers account
+  checkers-sixty60 set-location --address-id <id> Pin one of those addresses for delivery coordinates
+  checkers-sixty60 set-location --last-used       Follow the account's most-recently-used address
   checkers-sixty60 view-cart [--compact]
   checkers-sixty60 search --query <text> [--page <n>] [--size <n>] [--compact]
   checkers-sixty60 add-to-basket --product-id <id> [--qty <n>] [--cart-id <id>]
@@ -34,7 +37,10 @@ Examples:
   checkers-sixty60 verify-otp --phone 0821234567 --otp 1234
   checkers-sixty60 orders --json
   checkers-sixty60 orders --compact
-  checkers-sixty60 set-location --lat -26.2041 --lng 28.0473
+  checkers-sixty60 config
+  checkers-sixty60 addresses
+  checkers-sixty60 set-location --address-id 6a7af63360759ffcea46f2ca
+  checkers-sixty60 set-location --last-used
   checkers-sixty60 view-cart --compact
   checkers-sixty60 search --query milk --compact
   checkers-sixty60 add-to-basket --product-id 5d3af63cf434cf8420737e3e --qty 1
@@ -67,16 +73,16 @@ const parseCliArgs = () => {
         query: getFlag("--query"),
         productId: getFlag("--product-id"),
         cartId: getFlag("--cart-id"),
+        addressId: getFlag("--address-id"),
         page: getNumberFlag("--page"),
         size: getNumberFlag("--size"),
         qty: getNumberFlag("--qty"),
-        lat: getNumberFlag("--lat"),
-        lng: getNumberFlag("--lng"),
         port: getNumberFlag("--port"),
         json: args.includes("--json"),
         compact: args.includes("--compact"),
         http: args.includes("--http"),
         help: args.includes("--help") || args.includes("-h"),
+        lastUsed: args.includes("--last-used"),
     };
 };
 const ensurePhone = (phone) => {
@@ -118,24 +124,6 @@ const ensureOptionalQuantity = (qty) => {
         throw new Error("--qty must be a positive integer");
     }
     return qty;
-};
-const ensureLatitude = (value) => {
-    if (value === undefined || !Number.isFinite(value)) {
-        throw new Error("Missing required --lat option");
-    }
-    if (value < -90 || value > 90) {
-        throw new Error("--lat must be between -90 and 90");
-    }
-    return value;
-};
-const ensureLongitude = (value) => {
-    if (value === undefined || !Number.isFinite(value)) {
-        throw new Error("Missing required --lng option");
-    }
-    if (value < -180 || value > 180) {
-        throw new Error("--lng must be between -180 and 180");
-    }
-    return value;
 };
 const startOtpForPhone = async (phone) => {
     const result = await (0, session_1.requestOtpForPhone)(phone);
@@ -189,10 +177,58 @@ const runViewCart = async (compact) => {
     const result = await (0, session_1.withReauthHint)(() => (0, api_1.viewCart)((0, session_1.toLoginContext)(auth)));
     console.log(JSON.stringify(compact ? (0, format_1.toCompactCarts)(result) : result, null, 2));
 };
-const runSetLocation = async (lat, lng) => {
-    const saved = await (0, tenant_state_1.writeLocationSettings)(lat, lng);
-    console.log(`Saved location ${saved.latitude}, ${saved.longitude} to ${config_1.SETTINGS_FILE}`);
-    console.log("Env vars SIXTY60_LATITUDE/SIXTY60_LONGITUDE still override saved values when set.");
+const runSetLocation = async (cli) => {
+    if (cli.addressId === undefined && !cli.lastUsed) {
+        throw new Error("set-location needs --address-id <id> (pin a saved Checkers address) or --last-used (follow the account's most-recently-used address). List them with 'checkers-sixty60 addresses'.");
+    }
+    const { address, selection } = await (0, session_1.selectDeliveryAddress)(cli.addressId);
+    const where = address.fullAddress ? ` — ${address.fullAddress}` : "";
+    if (selection === "pinned") {
+        console.log(`Pinned delivery address ${JSON.stringify(address.label ?? address.id)}${where}`);
+        console.log(`  ${address.latitude}, ${address.longitude}`);
+        console.log(`Selection saved to ${config_1.SETTINGS_FILE}`);
+    }
+    else {
+        console.log(`Cleared the pin. The account's most-recently-used address will be used automatically (currently ${JSON.stringify(address.label ?? address.id)}${where}).`);
+    }
+};
+const runConfig = async () => {
+    const summary = await (0, session_1.getConfigSummary)();
+    console.log(JSON.stringify(summary, null, 2));
+};
+const runAddresses = async (jsonOnly) => {
+    const [addresses, pinnedId] = await Promise.all([
+        (0, session_1.listSavedAddresses)(),
+        (0, tenant_state_1.readSelectedAddressId)(),
+    ]);
+    if (jsonOnly) {
+        console.log(JSON.stringify(addresses, null, 2));
+        return;
+    }
+    if (addresses.length === 0) {
+        console.log("No delivery addresses saved on this Checkers account. Add one in the Sixty60 app.");
+        return;
+    }
+    // Which address delivery calls will actually use right now.
+    const activeId = pinnedId && addresses.some((a) => a.id === pinnedId)
+        ? pinnedId
+        : addresses[0]?.id;
+    for (const a of addresses) {
+        const coords = a.latitude !== undefined && a.longitude !== undefined
+            ? `${a.latitude}, ${a.longitude}`
+            : "(no coordinates on file)";
+        const marker = a.id === activeId
+            ? pinnedId === a.id
+                ? " *  (active, pinned)"
+                : " *  (active, last-used)"
+            : "";
+        console.log(`${a.label ?? a.type ?? "address"}  [${a.id}]${marker}`);
+        if (a.fullAddress) {
+            console.log(`  ${a.fullAddress}`);
+        }
+        console.log(`  ${coords}`);
+    }
+    console.log("\nPin one with:   checkers-sixty60 set-location --address-id <id>\nFollow latest:  checkers-sixty60 set-location --last-used");
 };
 const runInteractiveMenu = async () => {
     const action = await (0, prompts_1.select)({
@@ -255,8 +291,16 @@ const main = async () => {
         await runOrders(cli.json, cli.compact);
         return;
     }
+    if (cli.command === "config") {
+        await runConfig();
+        return;
+    }
+    if (cli.command === "addresses") {
+        await runAddresses(cli.json);
+        return;
+    }
     if (cli.command === "set-location") {
-        await runSetLocation(ensureLatitude(cli.lat), ensureLongitude(cli.lng));
+        await runSetLocation(cli);
         return;
     }
     if (cli.command === "view-cart") {

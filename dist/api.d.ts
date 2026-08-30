@@ -1,3 +1,6 @@
+export type DeliveryContext = Pick<LoginContext, "phoneE164" | "customerId" | "userId" | "email" | "accessToken"> & {
+    storeIds?: string[];
+};
 export type LoginContext = {
     phoneE164: string;
     customerId: string;
@@ -30,6 +33,53 @@ export declare const startOtpFlow: (phoneRaw: string) => Promise<{
     reference: string;
 }>;
 export declare const completeOtpFlow: (phoneE164: string, customerId: string, bffToken: string, otpReference: string, otp: string) => Promise<LoginContext>;
+export type CheckersAddress = {
+    _id?: string;
+    identifier?: string;
+    name?: string;
+    type?: string;
+    fullAddress?: string;
+    complexName?: string;
+    unitNumber?: string;
+    streetNumber?: string;
+    street?: string;
+    suburb?: string;
+    city?: string;
+    postalCode?: string;
+    coordinates?: {
+        latitude?: number;
+        longitude?: number;
+    };
+    geoLocation?: {
+        latitude?: number;
+        longitude?: number;
+    };
+    latitude?: number;
+    longitude?: number;
+    active?: boolean;
+    lastUsedOn?: number;
+    [key: string]: unknown;
+};
+export type NormalizedAddress = {
+    id: string;
+    label?: string;
+    type?: string;
+    fullAddress?: string;
+    suburb?: string;
+    city?: string;
+    latitude?: number;
+    longitude?: number;
+    active: boolean;
+    lastUsedOn?: number;
+};
+export declare const normalizeAddress: (raw: CheckersAddress) => NormalizedAddress;
+export declare const fetchAddresses: (context: DeliveryContext) => Promise<CheckersAddress[]>;
+export type ResolvedDeliveryAddress = NormalizedAddress & {
+    latitude: number;
+    longitude: number;
+    selection: "pinned" | "last-used";
+};
+export declare const resolveDeliveryAddress: (context: DeliveryContext) => Promise<ResolvedDeliveryAddress>;
 export declare const fetchOrders: (context: LoginContext) => Promise<unknown>;
 export declare const searchProducts: (context: LoginContext, query: string, page?: number, pageSize?: number) => Promise<unknown>;
 export declare const addToBasket: (context: LoginContext, productId: string, quantity?: number, cartId?: string) => Promise<unknown>;

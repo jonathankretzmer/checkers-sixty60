@@ -34,10 +34,10 @@ services:
       SIXTY60_LOG_DIR: /logs
       SIXTY60_HEALTHCHECK_PORT: "8080"
       # SIXTY60_HEALTHCHECK_HOST: "0.0.0.0"
-      # Store/cart context needs a location; persist it once with `set-location`
-      # or pass it per run:
-      # SIXTY60_LATITUDE: "-33.9249"
-      # SIXTY60_LONGITUDE: "18.4241"
+      # Store/cart context needs a delivery location. It always comes from an
+      # address saved on the Checkers account (most-recently-used by default);
+      # pin a specific one with `set-location --address-id <id>` / the
+      # set_location tool. There are no location env vars.
     volumes:
       - checkers-sixty60-data:/data   # auth.json, device.json, settings.json (dir 0700)
       - checkers-sixty60-logs:/logs   # mcp-server.log

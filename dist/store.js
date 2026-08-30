@@ -59,11 +59,18 @@ class FileStore {
     writeAuth(state) {
         return this.writeJson(this.paths.auth, state);
     }
-    readLocation() {
+    readAddressSelection() {
         return this.readJson(this.paths.settings);
     }
-    writeLocation(settings) {
-        return this.writeJson(this.paths.settings, settings);
+    writeAddressSelection(selection) {
+        return this.writeJson(this.paths.settings, selection);
+    }
+    clearAddressSelection() {
+        return (0, storage_1.removeFile)(this.paths.settings);
+    }
+    async readDeviceId() {
+        const existing = await this.readJson(this.paths.device);
+        return existing?.deviceId ?? null;
     }
     getOrCreateDeviceId() {
         return this.lock("device", async () => {

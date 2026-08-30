@@ -8,10 +8,11 @@ import {
 } from "./config";
 import { seal, unseal } from "./crypto";
 import {
+  type AddressSelection,
   type AuthState,
   type DeviceState,
-  type LocationSettings,
   readTextFile,
+  removeFile,
   writeTextFileAtomic,
 } from "./storage";
 
@@ -27,9 +28,13 @@ export type TenantStore = {
   readonly tenantId: string;
   readAuth(): Promise<AuthState | null>;
   writeAuth(state: AuthState): Promise<void>;
-  readLocation(): Promise<LocationSettings | null>;
-  writeLocation(settings: LocationSettings): Promise<void>;
+  readAddressSelection(): Promise<AddressSelection | null>;
+  writeAddressSelection(selection: AddressSelection): Promise<void>;
+  clearAddressSelection(): Promise<void>;
   getOrCreateDeviceId(): Promise<string>;
+  // Read-only peek at the device id; returns null if none has been created yet.
+  // Used by the `config` summary so inspecting state never mints a device id.
+  readDeviceId(): Promise<string | null>;
   // Serialises read-modify-write sequences for one tenant so parallel tool
   // calls can't clobber each other. Chains are keyed (e.g. "auth", "device")
   // and are NOT reentrant: never call lock(k) from inside lock(k). Nesting
@@ -107,12 +112,21 @@ class FileStore implements TenantStore {
     return this.writeJson(this.paths.auth, state);
   }
 
-  readLocation(): Promise<LocationSettings | null> {
-    return this.readJson<LocationSettings>(this.paths.settings);
+  readAddressSelection(): Promise<AddressSelection | null> {
+    return this.readJson<AddressSelection>(this.paths.settings);
   }
 
-  writeLocation(settings: LocationSettings): Promise<void> {
-    return this.writeJson(this.paths.settings, settings);
+  writeAddressSelection(selection: AddressSelection): Promise<void> {
+    return this.writeJson(this.paths.settings, selection);
+  }
+
+  clearAddressSelection(): Promise<void> {
+    return removeFile(this.paths.settings);
+  }
+
+  async readDeviceId(): Promise<string | null> {
+    const existing = await this.readJson<DeviceState>(this.paths.device);
+    return existing?.deviceId ?? null;
   }
 
   getOrCreateDeviceId(): Promise<string> {

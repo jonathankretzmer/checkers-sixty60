@@ -105,23 +105,43 @@ The CLI saves tokens to:
 
 ## Location
 
-Store and cart context requests use latitude/longitude. By default the CLI uses generic Cape Town coordinates.
+Store, cart, and search calls need a delivery latitude/longitude. It always
+comes from one of the addresses **already saved on your Checkers account** — the
+CLI has no coordinate storage, no geocoding, and no default. Add or edit
+addresses in the Sixty60 app.
 
-Persist location across sessions:
-
-```bash
-checkers-sixty60 set-location --lat -26.2041 --lng 28.0473
-```
-
-Override per session with env vars:
+By default the account's most-recently-used address is followed automatically.
+To see what's available and pin a specific one:
 
 ```bash
-SIXTY60_LATITUDE=-26.2041 SIXTY60_LONGITUDE=28.0473 checkers-sixty60 view-cart
+checkers-sixty60 addresses                        # list saved addresses (marks the active one)
+checkers-sixty60 set-location --address-id <id>   # pin that address
+checkers-sixty60 set-location --last-used         # clear the pin, follow the most-recently-used
 ```
 
-Saved settings are stored in `~/.checkers-sixty60/settings.json`.
+`addresses --json` emits the normalized list (id, label, coordinates,
+`lastUsedOn`). Only the pinned address **id** is stored locally
+(`~/.checkers-sixty60/settings.json`); coordinates are read live from the
+account on each call.
 
-Use your own nearby coordinates for best store availability and search/cart behavior.
+If the account has no saved address, delivery-dependent calls (and login, which
+resolves store context) fail with a message telling you to add one in the app.
+
+## Inspect configuration
+
+```bash
+checkers-sixty60 config
+```
+
+Prints a redacted snapshot of local state — data dir, logged-in account
+(phone, email, store IDs), the device id, and which API credentials are
+present. It never prints tokens or credential values.
+
+`location` shows the pinned address id (`null` = follow most-recently-used)
+plus `active`: the resolved delivery address actually in effect — label,
+formatted address, coordinates, and whether it is `pinned` or `last-used`. When
+a saved session exists this does one lightweight read-only lookup; otherwise
+`active` is `null` and `location.note` says why.
 
 ## MCP server
 
@@ -131,7 +151,14 @@ The same login/orders/cart/search/basket capabilities are also exposed as an MCP
 checkers-sixty60 mcp
 ```
 
-Tools exposed: `request_otp`, `verify_otp`, `list_orders`, `view_cart`, `search_products`, `add_to_basket`, `remove_from_basket`, `set_location`.
+Tools exposed: `request_otp`, `verify_otp`, `list_orders`, `view_cart`, `search_products`, `add_to_basket`, `remove_from_basket`, `list_addresses`, `set_location`, `get_config`.
+
+`list_addresses` returns the delivery addresses saved on the Checkers account
+(read-only; manage them in the Sixty60 app). `set_location` pins one of them by
+`addressId`, or clears the pin (omit `addressId`) so the most-recently-used
+address is followed — there is no way to set arbitrary coordinates. `get_config`
+returns the same redacted state snapshot as the CLI `config` command (no
+tokens, no credential values).
 
 Auth works the same way as the CLI: `request_otp` then `verify_otp` persist the session to `~/.checkers-sixty60/auth.json`, and every other tool reuses that saved session automatically — no need to re-authenticate between calls (see [Local State](#local-state) below). `verify_otp` never returns the access/refresh token to the client, only a non-sensitive session summary.
 
@@ -269,10 +296,11 @@ Point an MCP client at the compose service with an absolute path to the file:
 
 ### Location
 
-Store/cart/search calls need a latitude/longitude. In a container, either bake it
-into the environment (`SIXTY60_LATITUDE` / `SIXTY60_LONGITUDE`, both shown commented
-in the compose file) or call `set_location` once — it is saved to `settings.json` in
-the data volume and reused thereafter.
+Store/cart/search calls need a delivery latitude/longitude. It always comes from
+an address saved on the Checkers account — the account's most-recently-used one
+by default. Call `set_location` with an `addressId` from `list_addresses` to pin
+a specific one; only that id is written to `settings.json` in the data volume.
+There are no location env vars.
 
 ### Health / readiness endpoint
 
@@ -298,7 +326,7 @@ Every response body carries the full snapshot, e.g.:
   "transport": "stdio",
   "pid": 1,
   "uptimeSeconds": 12,
-  "mcp": { "connected": true, "tools": 8, "transportClosed": false, "errorCount": 0, "lastError": null }
+  "mcp": { "connected": true, "tools": 10, "transportClosed": false, "errorCount": 0, "lastError": null }
 }
 ```
 
@@ -316,7 +344,7 @@ All under `SIXTY60_DATA_DIR` (default `~/.checkers-sixty60`, `/data` in the Dock
 
 - Auth state (access/refresh tokens, phone, email, store IDs): `auth.json`
 - Device id: `device.json`
-- Location settings: `settings.json`
+- Pinned delivery-address id (`{ addressId, savedAt }`; absent = follow the account's most-recently-used address): `settings.json`
 
 These files are written with owner-only permissions (`0600` on the files, `0700` on the directory) since they contain live session tokens, and are replaced atomically (write-temp-then-rename).
 

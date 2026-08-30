@@ -1,7 +1,6 @@
-import type { LocationSettings } from "./storage";
+import type { AddressSelection } from "./storage";
 export declare const getOrCreateDeviceId: () => Promise<string>;
-export declare const resolveLocation: () => Promise<{
-    latitude?: number;
-    longitude?: number;
-}>;
-export declare const writeLocationSettings: (latitude: number, longitude: number) => Promise<LocationSettings>;
+export declare const readDeviceId: () => Promise<string | null>;
+export declare const readSelectedAddressId: () => Promise<string | null>;
+export declare const writeSelectedAddressId: (addressId: string) => Promise<AddressSelection>;
+export declare const clearSelectedAddress: () => Promise<void>;
