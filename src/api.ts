@@ -3,7 +3,8 @@ import {
   SIXTY60_API_KEY_AUTH,
   SIXTY60_PROFILE_TOKEN,
 } from "./config";
-import { http } from "./http";
+import { HttpError, http } from "./http";
+import { log } from "./logger";
 import { getOrCreateDeviceId, readSelectedAddressId } from "./tenant-state";
 
 const BFF_BASE = "https://dc-app-backend-for-frontend.sixty60.co.za";
@@ -58,8 +59,41 @@ type VerifyUserResponse = {
 type OtpRequestResponse = {
   response?: {
     reference?: string;
+    expiry?: unknown;
+    expiresIn?: unknown;
+    // If the request ever echoes the canonicalised number back, prefer it
+    // verbatim on verify. In practice the observed response is just
+    // `{ reference, expiry }`, so this is usually absent and `verifyOtp` falls
+    // back to trying each number format (see `otpIdentifierCandidates`).
+    identifier?: string;
+    mobileNumber?: string;
+    msisdn?: string;
+    to?: string;
+    target?: { identifier?: string };
   };
 };
+
+// The identifier the OTP request echoed back, if any. Returns undefined when
+// nothing usable is present so `verifyOtp` knows to try the format candidates.
+const pickOtpIdentifier = (
+  response: OtpRequestResponse["response"],
+): string | undefined => {
+  const echoed =
+    response?.identifier ??
+    response?.target?.identifier ??
+    response?.mobileNumber ??
+    response?.msisdn ??
+    response?.to;
+  return typeof echoed === "string" && echoed.trim() ? echoed.trim() : undefined;
+};
+
+// Benign response fields that don't warrant the "unexpected extra field" hint.
+const KNOWN_OTP_REQUEST_FIELDS = new Set([
+  "reference",
+  "expiry",
+  "expiresIn",
+  "ttl",
+]);
 
 type OtpVerifyResponse = {
   response?: {
@@ -134,21 +168,50 @@ export type LoginContext = {
   storeIds: string[];
 };
 
-const normalizePhone = (value: string): string => {
+// Canonical 11-digit SA mobile number, `27XXXXXXXXX` (no `+`). Every request
+// shape is derived from this.
+const phoneDigits = (value: string): string => {
   const digits = value.replace(/\D+/g, "");
   if (digits.startsWith("27") && digits.length === 11) {
-    return `+${digits}`;
+    return digits;
   }
   if (digits.startsWith("0") && digits.length === 10) {
-    return `+27${digits.slice(1)}`;
+    return `27${digits.slice(1)}`;
   }
   if (digits.length === 9) {
-    return `+27${digits}`;
+    return `27${digits}`;
   }
 
   throw new Error(
     "Invalid phone number. Use South African format like 0821234567 or +27821234567.",
   );
+};
+
+// E.164, `+27XXXXXXXXX` — what the OTP request query and every `mobileNumber`
+// header use.
+const normalizePhone = (value: string): string => `+${phoneDigits(value)}`;
+
+// National, `0XXXXXXXXX`.
+const toNationalPhone = (value: string): string =>
+  `0${phoneDigits(value).slice(2)}`;
+
+// Distinct identifier strings to try in the OTP verify `target.identifier`,
+// most-likely first. The verify endpoint keys on the exact string the pending
+// challenge was stored under, which is not necessarily the E.164 form.
+const otpIdentifierCandidates = (phoneE164: string): string[] => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const candidate of [
+    phoneE164, // +27XXXXXXXXX
+    phoneDigits(phoneE164), // 27XXXXXXXXX
+    toNationalPhone(phoneE164), // 0XXXXXXXXX
+  ]) {
+    if (!seen.has(candidate)) {
+      seen.add(candidate);
+      out.push(candidate);
+    }
+  }
+  return out;
 };
 
 const baseHeaders = async (
@@ -286,7 +349,11 @@ export const requestOtp = async (
   phoneRaw: string,
   bffToken: string,
   customerId: string,
-): Promise<{ phoneE164: string; reference: string }> => {
+): Promise<{
+  phoneE164: string;
+  reference: string;
+  otpIdentifier?: string;
+}> => {
   const phoneE164 = normalizePhone(phoneRaw);
 
   const data = await http<OtpRequestResponse>(
@@ -308,8 +375,45 @@ export const requestOtp = async (
     throw new Error(`No OTP reference returned: ${JSON.stringify(data)}`);
   }
 
-  return { phoneE164, reference };
+  const otpIdentifier = pickOtpIdentifier(data.response);
+  if (!otpIdentifier) {
+    const unexpected = Object.keys(data.response ?? {}).filter(
+      (key) => !KNOWN_OTP_REQUEST_FIELDS.has(key),
+    );
+    if (unexpected.length > 0) {
+      // A new field here might be the identifier verify wants — surface it.
+      log(
+        `otp request response carried unrecognised field(s) [${unexpected.join(", ")}]`,
+      );
+    }
+  }
+
+  return { phoneE164, reference, otpIdentifier };
 };
+
+const OTP_ATTEMPT_RE = /\botp\b|expired|attempts?\b/i;
+
+const verifyOtpWithIdentifier = (
+  identifier: string,
+  reference: string,
+  otp: string,
+  bffToken: string,
+  phoneE164: string,
+  customerId: string,
+): Promise<OtpVerifyResponse> =>
+  baseHeaders(bffToken, phoneE164, [], undefined, customerId).then((headers) =>
+    http<OtpVerifyResponse>(`${DSL_BASE}/otp/loginbymobile/verify`, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "x-api-key": required(SIXTY60_API_KEY_AUTH, "SIXTY60_API_KEY_AUTH"),
+      },
+      body: {
+        target: { type: "SMS", identifier, reference },
+        otp,
+      },
+    }),
+  );
 
 export const verifyOtp = async (
   phoneE164: string,
@@ -317,35 +421,61 @@ export const verifyOtp = async (
   otp: string,
   bffToken: string,
   customerId: string,
+  // The exact string the pending OTP challenge is stored under. When the
+  // request echoed one back (rare), pass it and only it is tried. Otherwise the
+  // verify endpoint is retried against each SA number format, since it keys on
+  // that string and it is not necessarily the E.164 form we sent.
+  identifier?: string,
 ): Promise<{ accessToken: string; refreshToken?: string }> => {
-  const data = await http<OtpVerifyResponse>(
-    `${DSL_BASE}/otp/loginbymobile/verify`,
-    {
-      method: "POST",
-      headers: {
-        ...(await baseHeaders(bffToken, phoneE164, [], undefined, customerId)),
-        "x-api-key": required(SIXTY60_API_KEY_AUTH, "SIXTY60_API_KEY_AUTH"),
-      },
-      body: {
-        target: {
-          type: "SMS",
-          identifier: phoneE164,
-          reference,
-        },
-        otp,
-      },
-    },
-  );
+  const candidates = identifier
+    ? [identifier]
+    : otpIdentifierCandidates(phoneE164);
+  const attempts: string[] = [];
 
-  const accessToken = data.response?.accessToken;
-  if (!accessToken) {
-    throw new Error(`No accessToken from OTP verify: ${JSON.stringify(data)}`);
+  for (let i = 0; i < candidates.length; i += 1) {
+    const candidate = candidates[i];
+    const isLast = i === candidates.length - 1;
+    try {
+      const data = await verifyOtpWithIdentifier(
+        candidate,
+        reference,
+        otp,
+        bffToken,
+        phoneE164,
+        customerId,
+      );
+      const accessToken = data.response?.accessToken;
+      if (!accessToken) {
+        throw new Error(
+          `No accessToken from OTP verify: ${JSON.stringify(data)}`,
+        );
+      }
+      if (i > 0) {
+        // E.164 is the expected format; note it if a fallback was needed.
+        log(
+          `otp verify succeeded with identifier ${JSON.stringify(candidate)} after ${i} rejected format(s)`,
+        );
+      }
+      return { accessToken, refreshToken: data.response?.refreshToken };
+    } catch (error) {
+      if (!(error instanceof HttpError)) {
+        throw error;
+      }
+      attempts.push(`${candidate} → HTTP ${error.status}: ${error.body}`);
+
+      // If the server got far enough to complain about the OTP itself (wrong /
+      // expired code, attempts exhausted), the identifier format was accepted —
+      // trying other formats would only burn attempts. Stop and report.
+      if (isLast || OTP_ATTEMPT_RE.test(error.body)) {
+        throw new Error(
+          `OTP verify failed for reference ${JSON.stringify(reference)}:\n${attempts.join("\n")}`,
+        );
+      }
+    }
   }
 
-  return {
-    accessToken,
-    refreshToken: data.response?.refreshToken,
-  };
+  // Unreachable: the loop returns or throws on the last candidate.
+  throw new Error("OTP verify: no identifier candidates to try");
 };
 
 export const getCustomerProfile = async (
@@ -425,6 +555,7 @@ export const loginFlow = async (
   phoneRaw: string,
   otp: string,
   otpReference: string,
+  otpIdentifier?: string,
 ): Promise<LoginContext> => {
   const phoneE164 = normalizePhone(phoneRaw);
   const bffToken = await getBffToken();
@@ -435,6 +566,7 @@ export const loginFlow = async (
     otp,
     bffToken,
     customerId,
+    otpIdentifier,
   );
   const profile = await getCustomerProfile(
     customerId,
@@ -467,6 +599,7 @@ export const startOtpFlow = async (
   customerId: string;
   bffToken: string;
   reference: string;
+  otpIdentifier?: string;
 }> => {
   const phoneE164 = normalizePhone(phoneRaw);
   const bffToken = await getBffToken();
@@ -478,6 +611,7 @@ export const startOtpFlow = async (
     customerId,
     bffToken,
     reference: otpRequest.reference,
+    otpIdentifier: otpRequest.otpIdentifier,
   };
 };
 
@@ -487,6 +621,7 @@ export const completeOtpFlow = async (
   bffToken: string,
   otpReference: string,
   otp: string,
+  otpIdentifier?: string,
 ): Promise<LoginContext> => {
   const otpResult = await verifyOtp(
     phoneE164,
@@ -494,6 +629,7 @@ export const completeOtpFlow = async (
     otp,
     bffToken,
     customerId,
+    otpIdentifier,
   );
   const profile = await getCustomerProfile(
     customerId,

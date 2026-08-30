@@ -15,8 +15,9 @@ export declare const verifyUser: (phoneE164: string, bffToken: string) => Promis
 export declare const requestOtp: (phoneRaw: string, bffToken: string, customerId: string) => Promise<{
     phoneE164: string;
     reference: string;
+    otpIdentifier?: string;
 }>;
-export declare const verifyOtp: (phoneE164: string, reference: string, otp: string, bffToken: string, customerId: string) => Promise<{
+export declare const verifyOtp: (phoneE164: string, reference: string, otp: string, bffToken: string, customerId: string, identifier?: string) => Promise<{
     accessToken: string;
     refreshToken?: string;
 }>;
@@ -25,14 +26,15 @@ export declare const getCustomerProfile: (customerId: string, accessToken: strin
     email: string;
 }>;
 export declare const getStoreIds: (accessToken: string, phoneE164: string, userId: string, customerId: string, email: string) => Promise<string[]>;
-export declare const loginFlow: (phoneRaw: string, otp: string, otpReference: string) => Promise<LoginContext>;
+export declare const loginFlow: (phoneRaw: string, otp: string, otpReference: string, otpIdentifier?: string) => Promise<LoginContext>;
 export declare const startOtpFlow: (phoneRaw: string) => Promise<{
     phoneE164: string;
     customerId: string;
     bffToken: string;
     reference: string;
+    otpIdentifier?: string;
 }>;
-export declare const completeOtpFlow: (phoneE164: string, customerId: string, bffToken: string, otpReference: string, otp: string) => Promise<LoginContext>;
+export declare const completeOtpFlow: (phoneE164: string, customerId: string, bffToken: string, otpReference: string, otp: string, otpIdentifier?: string) => Promise<LoginContext>;
 export type CheckersAddress = {
     _id?: string;
     identifier?: string;

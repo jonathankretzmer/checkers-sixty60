@@ -72,6 +72,7 @@ export const toAuthState = (
   context: LoginContext,
   bffToken: string,
   otpReference: string,
+  otpIdentifier?: string,
 ): AuthState => {
   return {
     phoneE164: context.phoneE164,
@@ -79,6 +80,7 @@ export const toAuthState = (
     userAccessToken: context.accessToken,
     refreshToken: context.refreshToken,
     otpReference,
+    otpIdentifier,
     customerId: context.customerId,
     userId: context.userId,
     email: context.email,
@@ -92,6 +94,7 @@ export const savePendingAuth = async (
   bffToken: string,
   customerId: string,
   reference: string,
+  otpIdentifier?: string,
 ): Promise<AuthState> => {
   const { store } = currentTenant();
   return store.lock("auth", async () => {
@@ -102,6 +105,7 @@ export const savePendingAuth = async (
       bffToken,
       customerId,
       otpReference: reference,
+      otpIdentifier,
       savedAt: new Date().toISOString(),
     };
     await store.writeAuth(next);
@@ -111,15 +115,20 @@ export const savePendingAuth = async (
 
 export const requestOtpForPhone = async (
   phoneRaw: string,
-): Promise<{ phoneE164: string; reference: string }> => {
+): Promise<{ phoneE164: string; reference: string; otpIdentifier?: string }> => {
   const started = await startOtpFlow(phoneRaw);
   await savePendingAuth(
     started.phoneE164,
     started.bffToken,
     started.customerId,
     started.reference,
+    started.otpIdentifier,
   );
-  return { phoneE164: started.phoneE164, reference: started.reference };
+  return {
+    phoneE164: started.phoneE164,
+    reference: started.reference,
+    otpIdentifier: started.otpIdentifier,
+  };
 };
 
 export const completeOtpForPhone = async (
@@ -135,6 +144,7 @@ export const completeOtpForPhone = async (
     const bffToken = existing?.bffToken;
     const customerId = existing?.customerId;
     const otpReference = reference ?? existing?.otpReference;
+    const otpIdentifier = existing?.otpIdentifier;
 
     if (!phoneFromState || !bffToken || !customerId || !otpReference) {
       throw new Error(
@@ -148,9 +158,10 @@ export const completeOtpForPhone = async (
       bffToken,
       otpReference,
       otpCode,
+      otpIdentifier,
     );
 
-    const state = toAuthState(login, bffToken, otpReference);
+    const state = toAuthState(login, bffToken, otpReference, otpIdentifier);
     await store.writeAuth(state);
     return state;
   });

@@ -180,6 +180,11 @@ const startOtpForPhone = async (phone: string): Promise<void> => {
   const result = await requestOtpForPhone(phone);
   console.log(`OTP sent to ${result.phoneE164}`);
   console.log(`Reference: ${result.reference}`);
+  console.log(
+    result.otpIdentifier
+      ? `Verify identifier: ${result.otpIdentifier}`
+      : "Verify identifier: not returned; verify will try +27…, 27…, then 0… formats",
+  );
 };
 
 const runInteractiveLogin = async (): Promise<AuthState> => {
@@ -195,9 +200,15 @@ const runInteractiveLogin = async (): Promise<AuthState> => {
     otpStart.bffToken,
     otpStart.reference,
     otp,
+    otpStart.otpIdentifier,
   );
 
-  const state = toAuthState(login, otpStart.bffToken, otpStart.reference);
+  const state = toAuthState(
+    login,
+    otpStart.bffToken,
+    otpStart.reference,
+    otpStart.otpIdentifier,
+  );
   await currentTenant().store.writeAuth(state);
   return state;
 };

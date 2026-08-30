@@ -8,6 +8,9 @@ export type AuthState = {
   userAccessToken?: string;
   refreshToken?: string;
   otpReference?: string;
+  // The identifier string the OTP request echoed back; must be reused verbatim
+  // on verify (see api.ts). Falls back to phoneE164 when absent.
+  otpIdentifier?: string;
   customerId?: string;
   userId?: string;
   email?: string;
