@@ -26,8 +26,10 @@ import {
 import { log } from "./logger";
 import {
   completeOtpForPhone,
+  findProduct,
   getConfigSummary,
   listSavedAddresses,
+  refreshMyProducts,
   requestOtpForPhone,
   requireAuth,
   selectDeliveryAddress,
@@ -188,6 +190,78 @@ export const createServer = (): McpServer => {
           searchProducts(toLoginContext(auth), query, page, size),
         );
         return ok(compact ? toCompactSearchResults(results) : results);
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "list_my_products",
+    {
+      description:
+        "Fetch and cache the authenticated user's personalised 'my products' list: catalog products they have ordered before, ranked by a recency/frequency score, each with a past-order count. Always hits the network and overwrites the local cache that find_product reads. Use it to seed reorder / 'add my usuals' flows. Returns { products (score-desc, hydrated with name/price/stock), fetchedAt, storeIds, totalScored, hydrated }.",
+      inputSchema: {
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(200)
+          .optional()
+          .default(100)
+          .describe(
+            "How many of the top-ranked products to hydrate and cache (the raw score list can be hundreds long)",
+          ),
+      },
+    },
+    async ({ limit }) => {
+      try {
+        return ok(await refreshMyProducts({ limit }));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "find_product",
+    {
+      description:
+        "One-shot product lookup for add-to-cart flows. Name-matches the query against the user's cached 'my products' (previously ordered, ranked) AND runs a fresh catalog search, returning both in one response so you can prefer a previously-ordered item and fall back to search without a second call. `myProducts.matches` is score-ordered; when non-empty, `recommendation` names the best previously-ordered candidate. The my-products cache auto-refreshes if missing, older than 24h, or for a different delivery store; pass refreshMyProducts to force it.",
+      inputSchema: {
+        query: z.string().describe("Product to look for, e.g. 'full cream milk'"),
+        matchLimit: z
+          .number()
+          .int()
+          .min(1)
+          .max(50)
+          .optional()
+          .default(10)
+          .describe("Max previously-ordered matches to return"),
+        searchSize: z
+          .number()
+          .int()
+          .min(1)
+          .max(100)
+          .optional()
+          .default(20)
+          .describe("Fresh catalog search page size"),
+        refreshMyProducts: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Force-refresh the my-products cache before matching"),
+      },
+    },
+    async ({ query, matchLimit, searchSize, refreshMyProducts }) => {
+      try {
+        return ok(
+          await findProduct(query, {
+            matchLimit,
+            searchSize,
+            refreshMyProducts,
+          }),
+        );
       } catch (error) {
         return fail(error);
       }

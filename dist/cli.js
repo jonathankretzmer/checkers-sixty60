@@ -27,6 +27,8 @@ Usage:
   checkers-sixty60 set-location --last-used       Follow the account's most-recently-used address
   checkers-sixty60 view-cart [--compact]
   checkers-sixty60 search --query <text> [--page <n>] [--size <n>] [--compact]
+  checkers-sixty60 my-products [--limit <n>]              Fetch + cache the personalised "previously ordered" list (ranked)
+  checkers-sixty60 find-product --query <text> [--size <n>] [--limit <n>] [--refresh]
   checkers-sixty60 add-to-basket --product-id <id> [--qty <n>] [--cart-id <id>]
   checkers-sixty60 remove-from-basket --product-id <id> [--qty <n>] [--cart-id <id>]
   checkers-sixty60 mcp                            Run as an MCP server over stdio
@@ -43,6 +45,8 @@ Examples:
   checkers-sixty60 set-location --last-used
   checkers-sixty60 view-cart --compact
   checkers-sixty60 search --query milk --compact
+  checkers-sixty60 my-products --limit 50
+  checkers-sixty60 find-product --query "full cream milk"
   checkers-sixty60 add-to-basket --product-id 5d3af63cf434cf8420737e3e --qty 1
   checkers-sixty60 remove-from-basket --product-id 5d3af63cf434cf8420737e3e
 `;
@@ -76,6 +80,7 @@ const parseCliArgs = () => {
         addressId: getFlag("--address-id"),
         page: getNumberFlag("--page"),
         size: getNumberFlag("--size"),
+        limit: getNumberFlag("--limit"),
         qty: getNumberFlag("--qty"),
         port: getNumberFlag("--port"),
         json: args.includes("--json"),
@@ -83,6 +88,7 @@ const parseCliArgs = () => {
         http: args.includes("--http"),
         help: args.includes("--help") || args.includes("-h"),
         lastUsed: args.includes("--last-used"),
+        refresh: args.includes("--refresh"),
     };
 };
 const ensurePhone = (phone) => {
@@ -164,6 +170,18 @@ const runSearch = async (query, page, size, compact) => {
         return;
     }
     console.log(JSON.stringify(results, null, 2));
+};
+const runMyProducts = async (limit) => {
+    const result = await (0, session_1.refreshMyProducts)({ limit });
+    console.log(JSON.stringify(result, null, 2));
+};
+const runFindProduct = async (query, searchSize, matchLimit, refresh) => {
+    const result = await (0, session_1.findProduct)(query, {
+        searchSize,
+        matchLimit,
+        refreshMyProducts: refresh,
+    });
+    console.log(JSON.stringify(result, null, 2));
 };
 const runAddToBasket = async (productId, qty, cartId) => {
     const auth = await (0, session_1.requireAuth)();
@@ -312,6 +330,14 @@ const main = async () => {
     }
     if (cli.command === "search") {
         await runSearch(ensureQuery(cli.query), cli.page ?? 0, cli.size ?? 20, cli.compact);
+        return;
+    }
+    if (cli.command === "my-products") {
+        await runMyProducts(cli.limit);
+        return;
+    }
+    if (cli.command === "find-product") {
+        await runFindProduct(ensureQuery(cli.query), cli.size ?? 20, cli.limit ?? 10, cli.refresh);
         return;
     }
     if (cli.command === "add-to-basket") {

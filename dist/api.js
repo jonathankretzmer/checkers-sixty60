@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.viewCart = exports.removeFromBasket = exports.addToBasket = exports.searchProducts = exports.fetchOrders = exports.resolveDeliveryAddress = exports.fetchAddresses = exports.normalizeAddress = exports.completeOtpFlow = exports.startOtpFlow = exports.loginFlow = exports.getStoreIds = exports.getCustomerProfile = exports.verifyOtp = exports.requestOtp = exports.verifyUser = exports.getBffToken = void 0;
+exports.viewCart = exports.removeFromBasket = exports.addToBasket = exports.hydrateProducts = exports.fetchMyProductScores = exports.searchProducts = exports.fetchOrders = exports.resolveDeliveryAddress = exports.fetchAddresses = exports.normalizeAddress = exports.completeOtpFlow = exports.startOtpFlow = exports.loginFlow = exports.getStoreIds = exports.getCustomerProfile = exports.verifyOtp = exports.requestOtp = exports.verifyUser = exports.getBffToken = void 0;
 const config_1 = require("./config");
 const http_1 = require("./http");
 const logger_1 = require("./logger");
@@ -452,6 +452,76 @@ const searchProducts = async (context, query, page = 0, pageSize = 20) => {
     });
 };
 exports.searchProducts = searchProducts;
+// The personalised reorder list: every product the account has ordered before,
+// each with a purchase `count` and a recency/frequency-weighted `score`.
+// `GET orders-api.sixty60.co.za/api/v3/orders/my-products?storeIds=<csv>` — the
+// store ids MUST be a comma-separated query param (a JSON array fails an
+// upstream ObjectID decode). The response is not reliably pre-sorted, so this
+// returns it sorted by `score` descending.
+const fetchMyProductScores = async (context) => {
+    const storeIdsCsv = context.storeIds.join(",");
+    const headers = await baseHeaders(context.accessToken, context.phoneE164, context.storeIds, context.userId, context.customerId, context.email);
+    headers.storeids = storeIdsCsv;
+    headers["istio-storeIds"] = storeIdsCsv;
+    const data = await (0, http_1.http)(`${ORDERS_BASE}/api/v3/orders/my-products`, {
+        method: "GET",
+        query: { storeIds: storeIdsCsv },
+        headers,
+    });
+    return [...(data.userProductScores ?? [])].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+};
+exports.fetchMyProductScores = fetchMyProductScores;
+// Resolve a set of product ids to full catalog products in the current store
+// context (name, price, stock). Same endpoint as `searchProducts` with a
+// `productIds` source instead of `search`. Upstream does not preserve the input
+// order and silently omits ids that are no longer ranged, so callers must
+// re-join by id (see `mergeMyProducts`).
+const hydrateProducts = async (context, productIds) => {
+    if (productIds.length === 0) {
+        return { products: [] };
+    }
+    const headers = await baseHeaders(context.accessToken, context.phoneE164, context.storeIds, context.userId, context.customerId, context.email);
+    const storeIdsCsv = context.storeIds.join(",");
+    headers.storeids = storeIdsCsv;
+    headers["istio-storeIds"] = storeIdsCsv;
+    return (0, http_1.http)(`${CATALOG_BASE}/api/v3/products/product-list-page`, {
+        method: "POST",
+        query: {
+            isCarousel: true,
+            includePromotions: true,
+            promotionChannel: "sixty60",
+            isXtraSavingsMember: true,
+            particularMemberBonusBuyIds: "",
+            t: Date.now(),
+        },
+        headers,
+        body: {
+            filter: {
+                productListSource: {
+                    productIds,
+                },
+                paginationOptions: {
+                    page: 0,
+                    pageSize: Math.max(productIds.length, 1),
+                },
+                filterOptions: {
+                    dealsOnly: false,
+                    brandOptions: [],
+                    departmentOptions: [],
+                    facetOptions: [],
+                    serviceOptions: [],
+                    filterIds: [],
+                },
+                showNotRangedProducts: false,
+            },
+            userContext: {
+                storeContexts: buildStoreContexts(context.storeIds),
+                userId: context.userId,
+            },
+        },
+    });
+};
+exports.hydrateProducts = hydrateProducts;
 const addToBasket = async (context, productId, quantity = 1, cartId) => {
     const location = await getLocation(context);
     const storeContextResponse = await (0, http_1.http)(`${CATALOG_BASE}/api/v3/store-contexts`, {

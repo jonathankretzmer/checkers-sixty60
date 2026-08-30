@@ -1,6 +1,6 @@
 ---
 name: checkers-sixty60-cli
-description: Drive a Checkers Sixty60 account — OTP auth, order history, cart, product search, basket edits, delivery-address selection, config — through the `checkers-sixty60` global CLI, `npx checkers-sixty60`, or the bundled MCP server. Trigger when the user wants to log into Checkers Sixty60, check their orders, view or edit their cart/basket, search the catalog, or choose their delivery address.
+description: Drive a Checkers Sixty60 account — OTP auth, order history, cart, product search, personalised "my products" (previously ordered, ranked), one-shot find-product lookup, basket edits, delivery-address selection, config — through the `checkers-sixty60` global CLI, `npx checkers-sixty60`, or the bundled MCP server. Trigger when the user wants to log into Checkers Sixty60, check their orders, view or edit their cart/basket, search the catalog, reorder or "add my usuals", or choose their delivery address.
 ---
 
 # Overview
@@ -17,7 +17,9 @@ Read **[Operations](#operations)** for what each action does and which fields it
 
 # Operations
 
-The typical flow: authenticate once → (optionally pick a delivery address) → search / view cart / edit basket / read orders. State persists, so step 1 is only needed again when the session expires.
+The typical flow: authenticate once → (optionally pick a delivery address) → find / search / view cart / edit basket / read orders. State persists, so step 1 is only needed again when the session expires.
+
+For an "add X to my cart" request, reach for **find product** first: it returns the user's previously-ordered matches (ranked) alongside a fresh catalog search in one response, so you can add a known repeat purchase and only fall back to search results when there is no prior match.
 
 ## Authenticate (OTP)
 
@@ -97,6 +99,36 @@ Optional:
 
 Prefer compact output for product-selection steps.
 
+## My products (previously ordered, ranked)
+
+No required fields. Optional: `limit` — how many of the top-ranked products to hydrate with name/price/stock and cache (default `100`, max `200`).
+
+Always fetches fresh from the account's reorder history and **overwrites the local cache** that _find product_ reads. Returns:
+
+- `products` — score-ordered; each carries `score` (recency/frequency-weighted rank), `count` (number of past orders that included it), and the usual product fields (`id`, `name`, `brand`, `price`, `inStock`, …).
+- `totalScored` — how many products the account's full score list held (the response only hydrates the top `limit`).
+- `hydrated` — how many of that top slice resolved to a live in-store product (delisted/out-of-range ids are dropped).
+- `fetchedAt`, `storeIds` — when and for which delivery store the snapshot was taken.
+
+Use it to seed a reorder / "add my usuals" flow, or to refresh the cache before a batch of _find product_ calls.
+
+## Find product
+
+Required: `query` (a product name, e.g. `full cream milk`).
+
+Optional:
+- `matchLimit` — max previously-ordered matches to return (default `10`).
+- `searchSize` — fresh catalog search page size (default `20`).
+- `refreshMyProducts` — force-refresh the my-products cache before matching (default `false`).
+
+One call for an add-to-cart decision. It name-matches `query` against the cached my-products list **and** runs a fresh catalog search, returning both:
+
+- `myProducts.matches` — previously-ordered hits, score-ordered (best repeat purchase first). `myProducts.source` is `cache` or `fresh`; the cache auto-refreshes when missing, older than 24h, or taken for a different delivery store.
+- `search.results` — fresh catalog results (same shape as _search products_).
+- `recommendation` — a one-line steer: add `myProducts.matches[0]` when present unless the user clearly means something else, otherwise choose from `search.results`.
+
+This replaces calling _my products_ + _search products_ separately for the common "add X" case.
+
 ## Add item to basket
 
 Required:
@@ -129,6 +161,8 @@ Preferred when the server is connected — same session state, no argv or JSON s
 | `list_orders` | Orders | — | `compact` (default `true`) |
 | `view_cart` | View cart | — | `compact` (default `true`) |
 | `search_products` | Search products | `query` | `page` (`0`), `size` (`20`), `compact` (`true`) |
+| `list_my_products` | My products (previously ordered, ranked) | — | `limit` (`100`) |
+| `find_product` | Find product (my-products match + fresh search) | `query` | `matchLimit` (`10`), `searchSize` (`20`), `refreshMyProducts` (`false`) |
 | `add_to_basket` | Add to basket | `productId` | `qty` (`1`), `cartId` |
 | `remove_from_basket` | Remove from basket | `productId` | `qty`, `cartId` |
 
@@ -159,13 +193,16 @@ Availability:
 | `orders` | Orders | — | `--compact`, `--json` |
 | `view-cart` | View cart | — | `--compact` |
 | `search` | Search products | `--query <text>` | `--page <n>`, `--size <n>`, `--compact` |
+| `my-products` | My products (previously ordered, ranked) | — | `--limit <n>` |
+| `find-product` | Find product (my-products match + fresh search) | `--query <text>` | `--size <n>` (search size), `--limit <n>` (match count), `--refresh` |
 | `add-to-basket` | Add to basket | `--product-id <id>` | `--qty <n>`, `--cart-id <id>` |
 | `remove-from-basket` | Remove from basket | `--product-id <id>` | `--qty <n>`, `--cart-id <id>` |
 
 CLI-specific:
 
 - Output is JSON on stdout; errors go to stderr with a non-zero exit code.
-- `--compact` is **off** by default — pass it to trim order/cart/search payloads.
+- `--compact` is **off** by default — pass it to trim order/cart/search payloads. `my-products` and `find-product` always emit their (already compact) structured result and ignore `--compact`.
+- `find-product --refresh` maps to the `refreshMyProducts` option; `my-products` always fetches fresh regardless.
 - `set-location` requires exactly one of `--address-id` or `--last-used`; a bare `set-location` is an error (unlike the MCP tool).
 - A `.env` in the working directory is loaded automatically (it holds the API
   credentials the OTP flow needs).

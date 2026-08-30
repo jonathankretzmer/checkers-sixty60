@@ -1,3 +1,4 @@
+import type { MyProduct } from "./format";
 export type AuthState = {
     phoneE164: string;
     bffToken?: string;
@@ -18,6 +19,13 @@ export type DeviceState = {
 export type AddressSelection = {
     addressId: string;
     savedAt: string;
+};
+export type MyProductsCache = {
+    products: MyProduct[];
+    fetchedAt: string;
+    storeIds: string[];
+    totalScored: number;
+    hydrated: number;
 };
 export declare const readTextFile: (path: string) => Promise<string | null>;
 export declare const writeTextFileAtomic: (path: string, text: string) => Promise<void>;

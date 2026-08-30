@@ -6,19 +6,31 @@ export type CompactOrder = {
     createdOn: number;
 };
 export declare const toCompactOrders: (payload: unknown) => CompactOrder[];
-export declare const toCompactSearchResults: (payload: unknown) => {
-    id: string | undefined;
-    name: string | undefined;
-    brand: string | undefined;
-    price: number | undefined;
-    oldPrice: number | undefined;
-    discount: number | undefined;
-    priceFactor: number | undefined;
-    currency: string | undefined;
-    storeId: string | undefined;
-    serviceOptionId: string | undefined;
-    inStock: boolean | undefined;
-}[];
+export type CompactProduct = {
+    id?: string;
+    name?: string;
+    brand?: string;
+    price?: number;
+    oldPrice?: number;
+    discount?: number;
+    priceFactor?: number;
+    currency?: string;
+    storeId?: string;
+    serviceOptionId?: string;
+    inStock?: boolean;
+};
+export declare const toCompactSearchResults: (payload: unknown) => CompactProduct[];
+export type MyProduct = CompactProduct & {
+    score: number;
+    count: number;
+};
+type MyProductScore = {
+    productId: string;
+    count?: number;
+    score?: number;
+};
+export declare const mergeMyProducts: (scores: MyProductScore[], hydratePayload: unknown) => MyProduct[];
+export declare const matchCachedMyProducts: (products: MyProduct[], query: string, limit: number) => MyProduct[];
 export type CompactCartItem = {
     productId: string;
     quantity: number;
@@ -35,3 +47,4 @@ export type CompactCart = {
     items: CompactCartItem[];
 };
 export declare const toCompactCarts: (payload: unknown) => CompactCart[];
+export {};
