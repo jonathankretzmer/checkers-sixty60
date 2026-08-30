@@ -14,6 +14,7 @@ const legacyPaths = {
     auth: config_1.AUTH_FILE,
     device: config_1.DEVICE_FILE,
     settings: config_1.SETTINGS_FILE,
+    myProducts: config_1.MY_PRODUCTS_FILE,
 };
 const tenantPaths = (tenantId) => {
     // Hash the identity so raw emails / subjects never land in a path, and the
@@ -24,6 +25,7 @@ const tenantPaths = (tenantId) => {
         auth: (0, node_path_1.join)(dir, "auth.json"),
         device: (0, node_path_1.join)(dir, "device.json"),
         settings: (0, node_path_1.join)(dir, "settings.json"),
+        myProducts: (0, node_path_1.join)(dir, "my-products.json"),
     };
 };
 class FileStore {
@@ -67,6 +69,12 @@ class FileStore {
     }
     clearAddressSelection() {
         return (0, storage_1.removeFile)(this.paths.settings);
+    }
+    readMyProductsCache() {
+        return this.readJson(this.paths.myProducts);
+    }
+    writeMyProductsCache(cache) {
+        return this.writeJson(this.paths.myProducts, cache);
     }
     async readDeviceId() {
         const existing = await this.readJson(this.paths.device);

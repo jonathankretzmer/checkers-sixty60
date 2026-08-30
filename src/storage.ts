@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import type { MyProduct } from "./format";
 
 export type AuthState = {
   phoneE164: string;
@@ -29,6 +30,21 @@ export type DeviceState = {
 export type AddressSelection = {
   addressId: string;
   savedAt: string;
+};
+
+// Cached snapshot of the personalised "my products" list (previously ordered,
+// ranked). Populated by `list_my_products` / `my-products` and read by
+// `find_product` so name matching against it costs no network call.
+//   storeIds    — the delivery store context it was fetched for; a change
+//                 invalidates the cache (different catalog / prices)
+//   totalScored — how many products the upstream score list held
+//   hydrated    — how many of the top slice resolved to a live product
+export type MyProductsCache = {
+  products: MyProduct[];
+  fetchedAt: string;
+  storeIds: string[];
+  totalScored: number;
+  hydrated: number;
 };
 
 // Low-level filesystem primitives. All typed state IO goes through the

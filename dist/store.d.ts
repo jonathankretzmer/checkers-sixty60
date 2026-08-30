@@ -1,4 +1,4 @@
-import { type AddressSelection, type AuthState } from "./storage";
+import { type AddressSelection, type AuthState, type MyProductsCache } from "./storage";
 export declare const DEFAULT_TENANT = "default";
 export type TenantStore = {
     readonly tenantId: string;
@@ -7,6 +7,8 @@ export type TenantStore = {
     readAddressSelection(): Promise<AddressSelection | null>;
     writeAddressSelection(selection: AddressSelection): Promise<void>;
     clearAddressSelection(): Promise<void>;
+    readMyProductsCache(): Promise<MyProductsCache | null>;
+    writeMyProductsCache(cache: MyProductsCache): Promise<void>;
     getOrCreateDeviceId(): Promise<string>;
     readDeviceId(): Promise<string | null>;
     lock<T>(key: string, fn: () => Promise<T>): Promise<T>;

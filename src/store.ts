@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
   AUTH_FILE,
   DEVICE_FILE,
+  MY_PRODUCTS_FILE,
   SETTINGS_FILE,
   TENANTS_DIR_PATH,
 } from "./config";
@@ -11,6 +12,7 @@ import {
   type AddressSelection,
   type AuthState,
   type DeviceState,
+  type MyProductsCache,
   readTextFile,
   removeFile,
   writeTextFileAtomic,
@@ -31,6 +33,11 @@ export type TenantStore = {
   readAddressSelection(): Promise<AddressSelection | null>;
   writeAddressSelection(selection: AddressSelection): Promise<void>;
   clearAddressSelection(): Promise<void>;
+  // Personalised "my products" cache. Plain read/write — it is a rebuildable
+  // performance cache, so no lock chain and no clear() (a stale/partial file is
+  // simply overwritten on the next fetch, or ignored when storeIds move on).
+  readMyProductsCache(): Promise<MyProductsCache | null>;
+  writeMyProductsCache(cache: MyProductsCache): Promise<void>;
   getOrCreateDeviceId(): Promise<string>;
   // Read-only peek at the device id; returns null if none has been created yet.
   // Used by the `config` summary so inspecting state never mints a device id.
@@ -46,12 +53,14 @@ type StatePaths = {
   auth: string;
   device: string;
   settings: string;
+  myProducts: string;
 };
 
 const legacyPaths: StatePaths = {
   auth: AUTH_FILE,
   device: DEVICE_FILE,
   settings: SETTINGS_FILE,
+  myProducts: MY_PRODUCTS_FILE,
 };
 
 const tenantPaths = (tenantId: string): StatePaths => {
@@ -63,6 +72,7 @@ const tenantPaths = (tenantId: string): StatePaths => {
     auth: join(dir, "auth.json"),
     device: join(dir, "device.json"),
     settings: join(dir, "settings.json"),
+    myProducts: join(dir, "my-products.json"),
   };
 };
 
@@ -122,6 +132,14 @@ class FileStore implements TenantStore {
 
   clearAddressSelection(): Promise<void> {
     return removeFile(this.paths.settings);
+  }
+
+  readMyProductsCache(): Promise<MyProductsCache | null> {
+    return this.readJson<MyProductsCache>(this.paths.myProducts);
+  }
+
+  writeMyProductsCache(cache: MyProductsCache): Promise<void> {
+    return this.writeJson(this.paths.myProducts, cache);
   }
 
   async readDeviceId(): Promise<string | null> {

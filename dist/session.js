@@ -1,10 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.selectDeliveryAddress = exports.listSavedAddresses = exports.requireAuth = exports.getConfigSummary = exports.hydrateAuth = exports.withReauthHint = exports.completeOtpForPhone = exports.requestOtpForPhone = exports.savePendingAuth = exports.toAuthState = exports.toLoginContext = void 0;
+exports.findProduct = exports.refreshMyProducts = exports.selectDeliveryAddress = exports.listSavedAddresses = exports.requireAuth = exports.getConfigSummary = exports.hydrateAuth = exports.withReauthHint = exports.completeOtpForPhone = exports.requestOtpForPhone = exports.savePendingAuth = exports.toAuthState = exports.toLoginContext = void 0;
 const api_1 = require("./api");
 const config_1 = require("./config");
 const context_1 = require("./context");
 const crypto_1 = require("./crypto");
+const format_1 = require("./format");
 const http_1 = require("./http");
 const tenant_state_1 = require("./tenant-state");
 const toLoginContext = (auth) => {
@@ -270,3 +271,92 @@ const selectDeliveryAddress = async (addressId) => {
     return { address: chosen, selection: "pinned" };
 };
 exports.selectDeliveryAddress = selectDeliveryAddress;
+// --- Personalised "my products" (previously ordered, ranked) -----------------
+// How many top-scored products to hydrate with name/price/stock and cache.
+// The upstream score list runs to hundreds of entries; the top slice covers a
+// household's actual repertoire while keeping the cache and the single
+// hydration call small.
+const MY_PRODUCTS_HYDRATE_LIMIT = 100;
+// A cache older than this (or fetched for different store ids) is refreshed by
+// `findProduct` before it is used. `refreshMyProducts` always ignores it.
+const MY_PRODUCTS_TTL_MS = 24 * 60 * 60 * 1000;
+const sameStoreIds = (a, b) => {
+    if (a.length !== b.length) {
+        return false;
+    }
+    const left = [...a].sort();
+    const right = [...b].sort();
+    return left.every((value, index) => value === right[index]);
+};
+const myProductsCacheStale = (cache, storeIds) => Number.isNaN(Date.parse(cache.fetchedAt)) ||
+    Date.now() - Date.parse(cache.fetchedAt) > MY_PRODUCTS_TTL_MS ||
+    !sameStoreIds(cache.storeIds, storeIds);
+// Fetch the score list, hydrate the top slice, cache it, return it. Always hits
+// the network — this is the "get the latest" path behind the `my-products`
+// command / `list_my_products` tool. Pass `context` to reuse an already
+// hydrated auth (findProduct does); otherwise it calls requireAuth itself.
+const refreshMyProducts = async (opts = {}) => {
+    const context = opts.context ?? (0, exports.toLoginContext)(await (0, exports.requireAuth)());
+    const limit = Math.max(opts.limit ?? MY_PRODUCTS_HYDRATE_LIMIT, 0);
+    const scores = await (0, exports.withReauthHint)(() => (0, api_1.fetchMyProductScores)(context));
+    const top = scores.slice(0, limit);
+    const hydrated = await (0, exports.withReauthHint)(() => (0, api_1.hydrateProducts)(context, top.map((entry) => entry.productId)));
+    const products = (0, format_1.mergeMyProducts)(top, hydrated);
+    const cache = {
+        products,
+        fetchedAt: new Date().toISOString(),
+        storeIds: context.storeIds,
+        totalScored: scores.length,
+        hydrated: products.length,
+    };
+    await (0, context_1.currentTenant)().store.writeMyProductsCache(cache);
+    return cache;
+};
+exports.refreshMyProducts = refreshMyProducts;
+const loadMyProducts = async (context, opts) => {
+    if (!opts.refresh) {
+        const cached = await (0, context_1.currentTenant)().store.readMyProductsCache();
+        if (cached && !myProductsCacheStale(cached, context.storeIds)) {
+            return { cache: cached, source: "cache" };
+        }
+    }
+    return {
+        cache: await (0, exports.refreshMyProducts)({ context, limit: opts.limit }),
+        source: "fresh",
+    };
+};
+// One call for an add-to-cart decision: name-match the query against the cached
+// personalised list AND run a fresh catalog search, returned together so an
+// agent can prefer a previously-ordered item and fall back to search without a
+// second round-trip.
+const findProduct = async (query, opts = {}) => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+        throw new Error("find-product needs a non-empty query.");
+    }
+    const context = (0, exports.toLoginContext)(await (0, exports.requireAuth)());
+    const matchLimit = opts.matchLimit ?? 10;
+    const searchSize = opts.searchSize ?? 20;
+    const { cache, source } = await loadMyProducts(context, {
+        refresh: opts.refreshMyProducts,
+    });
+    const matches = (0, format_1.matchCachedMyProducts)(cache.products, trimmed, matchLimit);
+    const searchRaw = await (0, exports.withReauthHint)(() => (0, api_1.searchProducts)(context, trimmed, 0, searchSize));
+    const results = (0, format_1.toCompactSearchResults)(searchRaw);
+    const top = matches[0];
+    const recommendation = top
+        ? `Previously ordered: "${top.name}" (${top.count}x past orders). Add productId ${top.id} unless the user clearly means something else, then fall back to search.results.`
+        : "No previously-ordered match; choose from search.results.";
+    return {
+        query: trimmed,
+        myProducts: {
+            source,
+            fetchedAt: cache.fetchedAt,
+            totalScored: cache.totalScored,
+            matches,
+        },
+        search: { resultCount: results.length, results },
+        recommendation,
+    };
+};
+exports.findProduct = findProduct;

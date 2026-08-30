@@ -1,5 +1,6 @@
 import { type LoginContext, type NormalizedAddress } from "./api";
-import type { AuthState } from "./storage";
+import { type CompactProduct, type MyProduct } from "./format";
+import type { AuthState, MyProductsCache } from "./storage";
 export declare const toLoginContext: (auth: AuthState) => LoginContext;
 export declare const toAuthState: (context: LoginContext, bffToken: string, otpReference: string, otpIdentifier?: string) => AuthState;
 export declare const savePendingAuth: (phoneE164: string, bffToken: string, customerId: string, reference: string, otpIdentifier?: string) => Promise<AuthState>;
@@ -53,3 +54,26 @@ export type DeliverySelection = {
     selection: "pinned" | "last-used";
 };
 export declare const selectDeliveryAddress: (addressId?: string) => Promise<DeliverySelection>;
+export declare const refreshMyProducts: (opts?: {
+    limit?: number;
+    context?: LoginContext;
+}) => Promise<MyProductsCache>;
+export type FindProductResult = {
+    query: string;
+    myProducts: {
+        source: "fresh" | "cache";
+        fetchedAt: string;
+        totalScored: number;
+        matches: MyProduct[];
+    };
+    search: {
+        resultCount: number;
+        results: CompactProduct[];
+    };
+    recommendation: string;
+};
+export declare const findProduct: (query: string, opts?: {
+    matchLimit?: number;
+    searchSize?: number;
+    refreshMyProducts?: boolean;
+}) => Promise<FindProductResult>;

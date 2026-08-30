@@ -147,5 +147,6 @@ These are paths observed in the bundle without a full scheme/host. They may belo
 - `/api/v2/carts/user`
 - `/api/v2/orders/history`
 - `/api/v3/carts/update`
+- `/api/v3/orders/my-products`
 - `/api/v3/products/product-list-page`
 - `/api/v3/store-contexts`

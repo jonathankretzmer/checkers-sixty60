@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SIXTY60_PROFILE_TOKEN = exports.SIXTY60_API_KEY_AUTH = exports.SIXTY60_API_KEY = exports.ALLOW_ANONYMOUS = exports.TRUST_PROXY_AUTH = exports.AUTH_HEADER = exports.OIDC_AUDIENCE = exports.OIDC_JWKS_URL = exports.OIDC_ISSUER = exports.AUTH_MODE = exports.STATE_KEY_B64 = exports.MCP_HTTP_PORT = exports.LOG_FILE = exports.LOG_DIR_PATH = exports.TENANTS_DIR_PATH = exports.SETTINGS_FILE = exports.DEVICE_FILE = exports.AUTH_FILE = exports.DATA_DIR_PATH = void 0;
+exports.SIXTY60_PROFILE_TOKEN = exports.SIXTY60_API_KEY_AUTH = exports.SIXTY60_API_KEY = exports.ALLOW_ANONYMOUS = exports.TRUST_PROXY_AUTH = exports.AUTH_HEADER = exports.OIDC_AUDIENCE = exports.OIDC_JWKS_URL = exports.OIDC_ISSUER = exports.AUTH_MODE = exports.STATE_KEY_B64 = exports.MCP_HTTP_PORT = exports.LOG_FILE = exports.LOG_DIR_PATH = exports.TENANTS_DIR_PATH = exports.MY_PRODUCTS_FILE = exports.SETTINGS_FILE = exports.DEVICE_FILE = exports.AUTH_FILE = exports.DATA_DIR_PATH = void 0;
 const node_os_1 = require("node:os");
 // All persistent state lives under a single base directory so a container can
 // mount one volume for it. Override with SIXTY60_DATA_DIR (e.g. `/data`);
@@ -14,6 +14,9 @@ exports.DEVICE_FILE = `${DATA_DIR}/device.json`;
 // coordinates come from the addresses saved on the Checkers account itself —
 // there is no local coordinate storage or fallback.
 exports.SETTINGS_FILE = `${DATA_DIR}/settings.json`;
+// Cached personalised "my products" list (previously ordered, ranked). Purely a
+// performance cache for `find-product`; safe to delete, rebuilt on next fetch.
+exports.MY_PRODUCTS_FILE = `${DATA_DIR}/my-products.json`;
 // Per-tenant state (multi-user HTTP hosting) lives under DATA_DIR/tenants/<slug>.
 // The single-user CLI / stdio path keeps writing the flat files above.
 exports.TENANTS_DIR_PATH = `${DATA_DIR}/tenants`;

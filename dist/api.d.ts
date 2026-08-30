@@ -84,6 +84,13 @@ export type ResolvedDeliveryAddress = NormalizedAddress & {
 export declare const resolveDeliveryAddress: (context: DeliveryContext) => Promise<ResolvedDeliveryAddress>;
 export declare const fetchOrders: (context: LoginContext) => Promise<unknown>;
 export declare const searchProducts: (context: LoginContext, query: string, page?: number, pageSize?: number) => Promise<unknown>;
+export type MyProductScore = {
+    productId: string;
+    count: number;
+    score: number;
+};
+export declare const fetchMyProductScores: (context: LoginContext) => Promise<MyProductScore[]>;
+export declare const hydrateProducts: (context: LoginContext, productIds: string[]) => Promise<unknown>;
 export declare const addToBasket: (context: LoginContext, productId: string, quantity?: number, cartId?: string) => Promise<unknown>;
 export declare const removeFromBasket: (context: LoginContext, productId: string, quantity?: number, cartId?: string) => Promise<unknown>;
 export declare const viewCart: (context: LoginContext) => Promise<unknown>;

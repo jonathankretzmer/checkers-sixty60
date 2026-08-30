@@ -14,6 +14,9 @@ export const DEVICE_FILE = `${DATA_DIR}/device.json`;
 // coordinates come from the addresses saved on the Checkers account itself —
 // there is no local coordinate storage or fallback.
 export const SETTINGS_FILE = `${DATA_DIR}/settings.json`;
+// Cached personalised "my products" list (previously ordered, ranked). Purely a
+// performance cache for `find-product`; safe to delete, rebuilt on next fetch.
+export const MY_PRODUCTS_FILE = `${DATA_DIR}/my-products.json`;
 
 // Per-tenant state (multi-user HTTP hosting) lives under DATA_DIR/tenants/<slug>.
 // The single-user CLI / stdio path keeps writing the flat files above.

@@ -30,12 +30,14 @@ node dist/cli.js --help
   - `checkers-sixty60 add-to-basket --product-id <id> --qty <n> [--cart-id <id>]`
 - Search:
   - `checkers-sixty60 search --query <text> --compact`
+  - `checkers-sixty60 my-products [--limit <n>]` (fetch + cache the personalised previously-ordered list, ranked by upstream `score`/`count`)
+  - `checkers-sixty60 find-product --query <text> [--size <n>] [--limit <n>] [--refresh]` (cached my-products name match + a fresh search, one response)
 - Location / config:
   - `checkers-sixty60 addresses [--json]` (list delivery addresses saved on the Checkers account; read-only, marks the active one)
   - `checkers-sixty60 set-location --address-id <id>` (pin one of those) | `--last-used` (clear the pin, follow the most-recently-used)
   - `checkers-sixty60 config` (redacted state snapshot: phone, email, pinned-address id, device id, credential presence — no tokens)
 - MCP server:
-  - `checkers-sixty60 mcp` (stdio, single-user; tools mirror the commands above plus `remove_from_basket`, `list_addresses`, `set_location`, `get_config`)
+  - `checkers-sixty60 mcp` (stdio, single-user; tools mirror the commands above — `list_my_products`, `find_product`, plus `remove_from_basket`, `list_addresses`, `set_location`, `get_config`)
   - `checkers-sixty60 mcp --http [--port <n>]` (Streamable HTTP, multi-tenant; for hosting behind an MCP gateway such as Obot)
 
 ## Local State
@@ -43,8 +45,9 @@ node dist/cli.js --help
 - Auth state: `~/.checkers-sixty60/auth.json`
 - Device id: `~/.checkers-sixty60/device.json`
 - Pinned delivery-address id: `~/.checkers-sixty60/settings.json` (`{ addressId, savedAt }`; absent = follow most-recently-used)
+- My-products cache: `~/.checkers-sixty60/my-products.json` (rebuildable perf cache for `find-product`; `{ products, fetchedAt, storeIds, totalScored, hydrated }`. Plain read/write via `TenantStore.{read,write}MyProductsCache` — no lock chain, no `clear()`; `session.ts` refreshes it when missing, >24h old, or `storeIds` changed. Safe to delete.)
 
-Under `mcp --http` the same three files are per-tenant at
+Under `mcp --http` the same files are per-tenant at
 `$SIXTY60_DATA_DIR/tenants/<sha256(identity)>/…`; the CLI and stdio server run
 as the `default` tenant and keep using the flat paths above. `SIXTY60_STATE_KEY`
 (base64, 32 bytes) enables AES-256-GCM envelope encryption of all of these.
@@ -102,8 +105,8 @@ store ids — fail until an address is added in the app.
 - `src/store.ts`: per-tenant `TenantStore` (`FileStore`), keyed lock chains, `default` tenant = legacy flat files
 - `src/tenant-state.ts`: tenant-scoped device-id + pinned-delivery-address-id accessors used by `api.ts` / `session.ts`
 - `src/crypto.ts`: optional AES-256-GCM envelope encryption for at-rest state (`SIXTY60_STATE_KEY`)
-- `src/session.ts`: auth/session logic (login state, hydration, re-auth-on-expiry); reads the active tenant via `currentTenant()`
-- `src/api.ts`: HTTP calls and request/response shaping; `fetchAddresses` / `resolveDeliveryAddress` supply delivery coordinates from the Checkers account
+- `src/session.ts`: auth/session logic (login state, hydration, re-auth-on-expiry); reads the active tenant via `currentTenant()`. Also hosts the my-products orchestration: `refreshMyProducts` (fetch scores → hydrate top slice → cache) and `findProduct` (cached my-products name match + fresh search in one result)
+- `src/api.ts`: HTTP calls and request/response shaping; `fetchAddresses` / `resolveDeliveryAddress` supply delivery coordinates from the Checkers account. `fetchMyProductScores` (`GET orders-api /api/v3/orders/my-products?storeIds=<csv>` — CSV query param is mandatory; sorts by `score` desc) and `hydrateProducts` (`product-list-page` with a `productIds` source; input order not preserved, delisted ids omitted)
 - `src/http.ts`: fetch wrapper (throws `HttpError` with status on non-2xx)
 - `src/format.ts`: compact output shaping shared by CLI and MCP tools
 - `src/storage.ts`: filesystem primitives (`readTextFile`, `writeTextFileAtomic`) + state types

@@ -92,6 +92,12 @@ bun run start view-cart
 # Search products
 bun run start search --query milk --compact
 
+# Fetch + cache the personalised "previously ordered" list (ranked)
+bun run start my-products --limit 50
+
+# One-shot lookup: previously-ordered matches + a fresh search in one response
+bun run start find-product --query "full cream milk"
+
 # Add product to basket (qty defaults to 1)
 bun run start add-to-basket --product-id 5d3af63cf434cf8420737e3e --qty 1
 
@@ -151,7 +157,7 @@ The same login/orders/cart/search/basket capabilities are also exposed as an MCP
 checkers-sixty60 mcp
 ```
 
-Tools exposed: `request_otp`, `verify_otp`, `list_orders`, `view_cart`, `search_products`, `add_to_basket`, `remove_from_basket`, `list_addresses`, `set_location`, `get_config`.
+Tools exposed: `request_otp`, `verify_otp`, `list_orders`, `view_cart`, `search_products`, `list_my_products`, `find_product`, `add_to_basket`, `remove_from_basket`, `list_addresses`, `set_location`, `get_config`.
 
 `list_addresses` returns the delivery addresses saved on the Checkers account
 (read-only; manage them in the Sixty60 app). `set_location` pins one of them by
@@ -345,10 +351,11 @@ All under `SIXTY60_DATA_DIR` (default `~/.checkers-sixty60`, `/data` in the Dock
 - Auth state (access/refresh tokens, phone, email, store IDs): `auth.json`
 - Device id: `device.json`
 - Pinned delivery-address id (`{ addressId, savedAt }`; absent = follow the account's most-recently-used address): `settings.json`
+- Cached "my products" list (previously ordered, ranked): `my-products.json` — a pure performance cache for `find-product`; safe to delete, rebuilt on next fetch
 
 These files are written with owner-only permissions (`0600` on the files, `0700` on the directory) since they contain live session tokens, and are replaced atomically (write-temp-then-rename).
 
-Under `mcp --http`, each tenant gets the same three files under `tenants/<sha256(identity)>/` instead; the CLI and stdio server always use the flat files above. Set `SIXTY60_STATE_KEY` (base64 of 32 bytes) to encrypt all of these at rest with AES-256-GCM.
+Under `mcp --http`, each tenant gets the same files under `tenants/<sha256(identity)>/` instead; the CLI and stdio server always use the flat files above. Set `SIXTY60_STATE_KEY` (base64 of 32 bytes) to encrypt all of these at rest with AES-256-GCM.
 
 Logs go to stderr by default; set `SIXTY60_LOG_DIR` to also append them to `<dir>/mcp-server.log`.
 

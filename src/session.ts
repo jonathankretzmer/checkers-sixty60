@@ -4,11 +4,14 @@ import {
   type NormalizedAddress,
   completeOtpFlow,
   fetchAddresses,
+  fetchMyProductScores,
   getBffToken,
   getCustomerProfile,
   getStoreIds,
+  hydrateProducts,
   normalizeAddress,
   resolveDeliveryAddress,
+  searchProducts,
   startOtpFlow,
   verifyUser,
 } from "./api";
@@ -20,8 +23,15 @@ import {
 } from "./config";
 import { currentTenant } from "./context";
 import { encryptionEnabled } from "./crypto";
+import {
+  type CompactProduct,
+  type MyProduct,
+  matchCachedMyProducts,
+  mergeMyProducts,
+  toCompactSearchResults,
+} from "./format";
 import { HttpError } from "./http";
-import type { AuthState } from "./storage";
+import type { AuthState, MyProductsCache } from "./storage";
 import {
   clearSelectedAddress,
   readDeviceId,
@@ -405,4 +415,147 @@ export const selectDeliveryAddress = async (
 
   await writeSelectedAddressId(addressId);
   return { address: chosen, selection: "pinned" };
+};
+
+// --- Personalised "my products" (previously ordered, ranked) -----------------
+
+// How many top-scored products to hydrate with name/price/stock and cache.
+// The upstream score list runs to hundreds of entries; the top slice covers a
+// household's actual repertoire while keeping the cache and the single
+// hydration call small.
+const MY_PRODUCTS_HYDRATE_LIMIT = 100;
+
+// A cache older than this (or fetched for different store ids) is refreshed by
+// `findProduct` before it is used. `refreshMyProducts` always ignores it.
+const MY_PRODUCTS_TTL_MS = 24 * 60 * 60 * 1000;
+
+const sameStoreIds = (a: string[], b: string[]): boolean => {
+  if (a.length !== b.length) {
+    return false;
+  }
+  const left = [...a].sort();
+  const right = [...b].sort();
+  return left.every((value, index) => value === right[index]);
+};
+
+const myProductsCacheStale = (
+  cache: MyProductsCache,
+  storeIds: string[],
+): boolean =>
+  Number.isNaN(Date.parse(cache.fetchedAt)) ||
+  Date.now() - Date.parse(cache.fetchedAt) > MY_PRODUCTS_TTL_MS ||
+  !sameStoreIds(cache.storeIds, storeIds);
+
+// Fetch the score list, hydrate the top slice, cache it, return it. Always hits
+// the network — this is the "get the latest" path behind the `my-products`
+// command / `list_my_products` tool. Pass `context` to reuse an already
+// hydrated auth (findProduct does); otherwise it calls requireAuth itself.
+export const refreshMyProducts = async (
+  opts: { limit?: number; context?: LoginContext } = {},
+): Promise<MyProductsCache> => {
+  const context = opts.context ?? toLoginContext(await requireAuth());
+  const limit = Math.max(opts.limit ?? MY_PRODUCTS_HYDRATE_LIMIT, 0);
+
+  const scores = await withReauthHint(() => fetchMyProductScores(context));
+  const top = scores.slice(0, limit);
+  const hydrated = await withReauthHint(() =>
+    hydrateProducts(
+      context,
+      top.map((entry) => entry.productId),
+    ),
+  );
+  const products = mergeMyProducts(top, hydrated);
+
+  const cache: MyProductsCache = {
+    products,
+    fetchedAt: new Date().toISOString(),
+    storeIds: context.storeIds,
+    totalScored: scores.length,
+    hydrated: products.length,
+  };
+  await currentTenant().store.writeMyProductsCache(cache);
+  return cache;
+};
+
+const loadMyProducts = async (
+  context: LoginContext,
+  opts: { refresh?: boolean; limit?: number },
+): Promise<{ cache: MyProductsCache; source: "fresh" | "cache" }> => {
+  if (!opts.refresh) {
+    const cached = await currentTenant().store.readMyProductsCache();
+    if (cached && !myProductsCacheStale(cached, context.storeIds)) {
+      return { cache: cached, source: "cache" };
+    }
+  }
+  return {
+    cache: await refreshMyProducts({ context, limit: opts.limit }),
+    source: "fresh",
+  };
+};
+
+export type FindProductResult = {
+  query: string;
+  myProducts: {
+    // "cache" = served from the stored snapshot; "fresh" = (re)fetched now
+    // because it was missing, older than 24h, for different store ids, or
+    // a refresh was forced.
+    source: "fresh" | "cache";
+    fetchedAt: string;
+    totalScored: number;
+    matches: MyProduct[];
+  };
+  search: {
+    resultCount: number;
+    results: CompactProduct[];
+  };
+  recommendation: string;
+};
+
+// One call for an add-to-cart decision: name-match the query against the cached
+// personalised list AND run a fresh catalog search, returned together so an
+// agent can prefer a previously-ordered item and fall back to search without a
+// second round-trip.
+export const findProduct = async (
+  query: string,
+  opts: {
+    matchLimit?: number;
+    searchSize?: number;
+    refreshMyProducts?: boolean;
+  } = {},
+): Promise<FindProductResult> => {
+  const trimmed = query.trim();
+  if (!trimmed) {
+    throw new Error("find-product needs a non-empty query.");
+  }
+
+  const context = toLoginContext(await requireAuth());
+  const matchLimit = opts.matchLimit ?? 10;
+  const searchSize = opts.searchSize ?? 20;
+
+  const { cache, source } = await loadMyProducts(context, {
+    refresh: opts.refreshMyProducts,
+  });
+  const matches = matchCachedMyProducts(cache.products, trimmed, matchLimit);
+
+  const searchRaw = await withReauthHint(() =>
+    searchProducts(context, trimmed, 0, searchSize),
+  );
+  const results = toCompactSearchResults(searchRaw);
+
+  const top = matches[0];
+  const recommendation = top
+    ? `Previously ordered: "${top.name}" (${top.count}x past orders). Add productId ${top.id} unless the user clearly means something else, then fall back to search.results.`
+    : "No previously-ordered match; choose from search.results.";
+
+  return {
+    query: trimmed,
+    myProducts: {
+      source,
+      fetchedAt: cache.fetchedAt,
+      totalScored: cache.totalScored,
+      matches,
+    },
+    search: { resultCount: results.length, results },
+    recommendation,
+  };
 };
