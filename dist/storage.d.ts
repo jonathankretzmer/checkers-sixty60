@@ -4,6 +4,7 @@ export type AuthState = {
     userAccessToken?: string;
     refreshToken?: string;
     otpReference?: string;
+    otpIdentifier?: string;
     customerId?: string;
     userId?: string;
     email?: string;

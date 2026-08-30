@@ -129,14 +129,17 @@ const startOtpForPhone = async (phone) => {
     const result = await (0, session_1.requestOtpForPhone)(phone);
     console.log(`OTP sent to ${result.phoneE164}`);
     console.log(`Reference: ${result.reference}`);
+    console.log(result.otpIdentifier
+        ? `Verify identifier: ${result.otpIdentifier}`
+        : "Verify identifier: not returned; verify will try +27…, 27…, then 0… formats");
 };
 const runInteractiveLogin = async () => {
     const phone = await (0, prompts_1.input)({ message: "Phone number (e.g. 0821234567):" });
     const otpStart = await (0, api_1.startOtpFlow)(phone);
     console.log(`OTP sent to ${otpStart.phoneE164}`);
     const otp = await (0, prompts_1.password)({ message: "Enter OTP:" });
-    const login = await (0, api_1.completeOtpFlow)(otpStart.phoneE164, otpStart.customerId, otpStart.bffToken, otpStart.reference, otp);
-    const state = (0, session_1.toAuthState)(login, otpStart.bffToken, otpStart.reference);
+    const login = await (0, api_1.completeOtpFlow)(otpStart.phoneE164, otpStart.customerId, otpStart.bffToken, otpStart.reference, otp, otpStart.otpIdentifier);
+    const state = (0, session_1.toAuthState)(login, otpStart.bffToken, otpStart.reference, otpStart.otpIdentifier);
     await (0, context_1.currentTenant)().store.writeAuth(state);
     return state;
 };

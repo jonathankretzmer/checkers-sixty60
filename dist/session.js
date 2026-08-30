@@ -42,13 +42,14 @@ const toDeliveryContext = (auth) => {
         storeIds: auth.storeIds,
     };
 };
-const toAuthState = (context, bffToken, otpReference) => {
+const toAuthState = (context, bffToken, otpReference, otpIdentifier) => {
     return {
         phoneE164: context.phoneE164,
         bffToken,
         userAccessToken: context.accessToken,
         refreshToken: context.refreshToken,
         otpReference,
+        otpIdentifier,
         customerId: context.customerId,
         userId: context.userId,
         email: context.email,
@@ -57,7 +58,7 @@ const toAuthState = (context, bffToken, otpReference) => {
     };
 };
 exports.toAuthState = toAuthState;
-const savePendingAuth = async (phoneE164, bffToken, customerId, reference) => {
+const savePendingAuth = async (phoneE164, bffToken, customerId, reference, otpIdentifier) => {
     const { store } = (0, context_1.currentTenant)();
     return store.lock("auth", async () => {
         const existing = await store.readAuth();
@@ -67,6 +68,7 @@ const savePendingAuth = async (phoneE164, bffToken, customerId, reference) => {
             bffToken,
             customerId,
             otpReference: reference,
+            otpIdentifier,
             savedAt: new Date().toISOString(),
         };
         await store.writeAuth(next);
@@ -76,8 +78,12 @@ const savePendingAuth = async (phoneE164, bffToken, customerId, reference) => {
 exports.savePendingAuth = savePendingAuth;
 const requestOtpForPhone = async (phoneRaw) => {
     const started = await (0, api_1.startOtpFlow)(phoneRaw);
-    await (0, exports.savePendingAuth)(started.phoneE164, started.bffToken, started.customerId, started.reference);
-    return { phoneE164: started.phoneE164, reference: started.reference };
+    await (0, exports.savePendingAuth)(started.phoneE164, started.bffToken, started.customerId, started.reference, started.otpIdentifier);
+    return {
+        phoneE164: started.phoneE164,
+        reference: started.reference,
+        otpIdentifier: started.otpIdentifier,
+    };
 };
 exports.requestOtpForPhone = requestOtpForPhone;
 const completeOtpForPhone = async (phone, otpCode, reference) => {
@@ -88,11 +94,12 @@ const completeOtpForPhone = async (phone, otpCode, reference) => {
         const bffToken = existing?.bffToken;
         const customerId = existing?.customerId;
         const otpReference = reference ?? existing?.otpReference;
+        const otpIdentifier = existing?.otpIdentifier;
         if (!phoneFromState || !bffToken || !customerId || !otpReference) {
             throw new Error("Missing pending auth context. Run request-otp first (or pass --reference).");
         }
-        const login = await (0, api_1.completeOtpFlow)(phone, customerId, bffToken, otpReference, otpCode);
-        const state = (0, exports.toAuthState)(login, bffToken, otpReference);
+        const login = await (0, api_1.completeOtpFlow)(phone, customerId, bffToken, otpReference, otpCode, otpIdentifier);
+        const state = (0, exports.toAuthState)(login, bffToken, otpReference, otpIdentifier);
         await store.writeAuth(state);
         return state;
     });
