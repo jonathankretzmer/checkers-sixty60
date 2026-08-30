@@ -26,12 +26,14 @@ import {
 import { log } from "./logger";
 import {
   completeOtpForPhone,
+  getConfigSummary,
+  listSavedAddresses,
   requestOtpForPhone,
   requireAuth,
+  selectDeliveryAddress,
   toLoginContext,
   withReauthHint,
 } from "./session";
-import { writeLocationSettings } from "./tenant-state";
 
 type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
@@ -70,7 +72,7 @@ const toSessionSummary = (auth: {
 export const createServer = (): McpServer => {
   const server = new McpServer({
     name: "checkers-sixty60",
-    version: "0.1.0",
+    version: "0.3.0",
   });
 
   server.registerTool(
@@ -245,19 +247,61 @@ export const createServer = (): McpServer => {
   );
 
   server.registerTool(
+    "list_addresses",
+    {
+      description:
+        "List the delivery addresses saved on the authenticated Checkers Sixty60 account, most-recently-used first (read-only; add or edit addresses in the Sixty60 app). Each entry includes its coordinates and id for use with set_location.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        return ok(await listSavedAddresses());
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
     "set_location",
     {
       description:
-        "Persist a delivery latitude/longitude used to resolve store contexts for search, cart, and basket calls.",
+        "Choose which saved Checkers address supplies the delivery coordinates for search, cart, and basket calls. Pass addressId (from list_addresses) to pin one; omit it (or pass useLastUsed) to clear the pin and always follow the account's most-recently-used address. There is no way to set arbitrary coordinates — manage addresses in the Sixty60 app.",
       inputSchema: {
-        lat: z.number().min(-90).max(90),
-        lng: z.number().min(-180).max(180),
+        addressId: z
+          .string()
+          .optional()
+          .describe(
+            "id of a saved Checkers address (from list_addresses) to pin; omit to follow the most-recently-used address",
+          ),
+        useLastUsed: z
+          .boolean()
+          .optional()
+          .describe(
+            "Explicitly clear any pin so the account's most-recently-used address is followed (same as omitting addressId)",
+          ),
       },
     },
-    async ({ lat, lng }) => {
+    async ({ addressId }) => {
       try {
-        const saved = await writeLocationSettings(lat, lng);
-        return ok(saved);
+        const { address, selection } = await selectDeliveryAddress(addressId);
+        return ok({ selection, address });
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_config",
+    {
+      description:
+        "Show the current local configuration and session state (data dir, logged-in account phone/email, device id, which API credentials are present) plus the resolved active delivery address (label, formatted address, coordinates, pinned vs last-used). Never returns tokens or credential values.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        return ok(await getConfigSummary());
       } catch (error) {
         return fail(error);
       }

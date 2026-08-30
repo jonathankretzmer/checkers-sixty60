@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.writeTextFileAtomic = exports.readTextFile = void 0;
+exports.removeFile = exports.writeTextFileAtomic = exports.readTextFile = void 0;
 const node_crypto_1 = require("node:crypto");
 const promises_1 = require("node:fs/promises");
 const node_path_1 = require("node:path");
@@ -35,3 +35,15 @@ const writeTextFileAtomic = async (path, text) => {
     await (0, promises_1.chmod)(path, 0o600).catch(() => { });
 };
 exports.writeTextFileAtomic = writeTextFileAtomic;
+const removeFile = async (path) => {
+    try {
+        await (0, promises_1.rm)(path);
+    }
+    catch (error) {
+        const err = error;
+        if (err.code !== "ENOENT") {
+            throw error;
+        }
+    }
+};
+exports.removeFile = removeFile;

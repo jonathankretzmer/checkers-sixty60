@@ -10,6 +10,9 @@ const DATA_DIR = process.env.SIXTY60_DATA_DIR?.trim() ||
 exports.DATA_DIR_PATH = DATA_DIR;
 exports.AUTH_FILE = `${DATA_DIR}/auth.json`;
 exports.DEVICE_FILE = `${DATA_DIR}/device.json`;
+// Holds the pinned delivery-address selection (see src/tenant-state.ts). All
+// coordinates come from the addresses saved on the Checkers account itself —
+// there is no local coordinate storage or fallback.
 exports.SETTINGS_FILE = `${DATA_DIR}/settings.json`;
 // Per-tenant state (multi-user HTTP hosting) lives under DATA_DIR/tenants/<slug>.
 // The single-user CLI / stdio path keeps writing the flat files above.

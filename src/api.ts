@@ -4,7 +4,7 @@ import {
   SIXTY60_PROFILE_TOKEN,
 } from "./config";
 import { http } from "./http";
-import { getOrCreateDeviceId, resolveLocation } from "./tenant-state";
+import { getOrCreateDeviceId, readSelectedAddressId } from "./tenant-state";
 
 const BFF_BASE = "https://dc-app-backend-for-frontend.sixty60.co.za";
 const DSL_BASE =
@@ -29,21 +29,20 @@ const required = (value: string | null, name: string): string => {
 const APP_VERSION = "iPadOS 2.0.99 (1769786479)";
 const APP_BUILD = "1769786479";
 
-const DEFAULT_LATITUDE = -33.9249;
-const DEFAULT_LONGITUDE = 18.4241;
+// Everything that needs a delivery lat/lng resolves it from the addresses saved
+// on the Checkers account (see `resolveDeliveryAddress`). `fetchAddresses` only
+// needs the identity headers, not a resolved store context, so this narrower
+// shape lets the login/hydrate path call it before store ids exist.
+export type DeliveryContext = Pick<
+  LoginContext,
+  "phoneE164" | "customerId" | "userId" | "email" | "accessToken"
+> & { storeIds?: string[] };
 
-const getLocation = async (): Promise<{
-  latitude: number;
-  longitude: number;
-}> => {
-  // Tenant-scoped: saved settings for the active tenant, with env-var override
-  // for the single-user default tenant only (see tenant-state.ts).
-  const loc = await resolveLocation();
-
-  return {
-    latitude: loc.latitude ?? DEFAULT_LATITUDE,
-    longitude: loc.longitude ?? DEFAULT_LONGITUDE,
-  };
+const getLocation = async (
+  ctx: DeliveryContext,
+): Promise<{ latitude: number; longitude: number }> => {
+  const address = await resolveDeliveryAddress(ctx);
+  return { latitude: address.latitude, longitude: address.longitude };
 };
 
 type BffTokenResponse = {
@@ -384,7 +383,13 @@ export const getStoreIds = async (
   customerId: string,
   email: string,
 ): Promise<string[]> => {
-  const location = await getLocation();
+  const location = await getLocation({
+    accessToken,
+    phoneE164,
+    userId,
+    customerId,
+    email,
+  });
 
   const data = await http<StoreContextsResponse>(
     `${CATALOG_BASE}/api/v3/store-contexts`,
@@ -514,6 +519,151 @@ export const completeOtpFlow = async (
   };
 };
 
+// A saved delivery address on the Checkers account, as returned by
+// GET /customers/{userId}/addresses. Only the fields this CLI reads are named;
+// the upstream payload carries more (deliveryInstructions, googleMapsPlaceId,
+// notifyWhenAddressServiced, ...) and has changed shape before, so the extra
+// coordinate fallbacks in `normalizeAddress` are deliberate.
+export type CheckersAddress = {
+  _id?: string;
+  identifier?: string;
+  name?: string;
+  type?: string;
+  fullAddress?: string;
+  complexName?: string;
+  unitNumber?: string;
+  streetNumber?: string;
+  street?: string;
+  suburb?: string;
+  city?: string;
+  postalCode?: string;
+  coordinates?: { latitude?: number; longitude?: number };
+  geoLocation?: { latitude?: number; longitude?: number };
+  latitude?: number;
+  longitude?: number;
+  active?: boolean;
+  lastUsedOn?: number;
+  [key: string]: unknown;
+};
+
+type CustomerAddressesResponse = {
+  items?: CheckersAddress[];
+  success?: boolean;
+};
+
+export type NormalizedAddress = {
+  id: string;
+  label?: string;
+  type?: string;
+  fullAddress?: string;
+  suburb?: string;
+  city?: string;
+  latitude?: number;
+  longitude?: number;
+  active: boolean;
+  lastUsedOn?: number;
+};
+
+const pickCoord = (
+  ...candidates: Array<number | undefined>
+): number | undefined => {
+  for (const value of candidates) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return undefined;
+};
+
+export const normalizeAddress = (raw: CheckersAddress): NormalizedAddress => ({
+  id: raw.identifier ?? raw._id ?? "",
+  label: raw.name,
+  type: raw.type,
+  fullAddress: raw.fullAddress,
+  suburb: raw.suburb,
+  city: raw.city,
+  latitude: pickCoord(
+    raw.coordinates?.latitude,
+    raw.geoLocation?.latitude,
+    raw.latitude,
+  ),
+  longitude: pickCoord(
+    raw.coordinates?.longitude,
+    raw.geoLocation?.longitude,
+    raw.longitude,
+  ),
+  active: raw.active !== false,
+  lastUsedOn: typeof raw.lastUsedOn === "number" ? raw.lastUsedOn : undefined,
+});
+
+// Read-only: list the delivery addresses already saved on the Checkers account.
+// The path takes the mongo profile id (context.userId), NOT the short
+// customer-id, and authenticates with the ordinary user access token.
+// Creating / editing addresses is intentionally left to the official app.
+export const fetchAddresses = async (
+  context: DeliveryContext,
+): Promise<CheckersAddress[]> => {
+  const data = await http<CustomerAddressesResponse>(
+    `${AUTH_BASE}/customers/${context.userId}/addresses`,
+    {
+      method: "GET",
+      headers: await baseHeaders(
+        context.accessToken,
+        context.phoneE164,
+        context.storeIds ?? [],
+        context.userId,
+        context.customerId,
+        context.email,
+      ),
+    },
+  );
+
+  return data.items ?? [];
+};
+
+export type ResolvedDeliveryAddress = NormalizedAddress & {
+  latitude: number;
+  longitude: number;
+  selection: "pinned" | "last-used";
+};
+
+// The single source of delivery coordinates: whichever saved Checkers address
+// is pinned (settings.json), else the account's most-recently-used one. Throws
+// an actionable error if the account has no usable address — there is no
+// coordinate fallback by design.
+export const resolveDeliveryAddress = async (
+  context: DeliveryContext,
+): Promise<ResolvedDeliveryAddress> => {
+  const pinnedId = await readSelectedAddressId();
+  const usable = (await fetchAddresses(context))
+    .map(normalizeAddress)
+    .filter(
+      (a): a is NormalizedAddress & { latitude: number; longitude: number } =>
+        a.latitude !== undefined && a.longitude !== undefined,
+    );
+
+  if (usable.length === 0) {
+    throw new Error(
+      "No delivery address with coordinates is saved on this Checkers account. Add one in the Sixty60 app, then retry.",
+    );
+  }
+
+  if (pinnedId) {
+    const chosen = usable.find((a) => a.id === pinnedId);
+    if (!chosen) {
+      throw new Error(
+        `Pinned delivery address ${JSON.stringify(pinnedId)} is no longer on the Checkers account. Run 'checkers-sixty60 addresses' to list current ones, then 'checkers-sixty60 set-location --address-id <id>' or '--last-used'.`,
+      );
+    }
+    return { ...chosen, selection: "pinned" };
+  }
+
+  const mostRecent = [...usable].sort(
+    (a, b) => (b.lastUsedOn ?? 0) - (a.lastUsedOn ?? 0),
+  )[0];
+  return { ...mostRecent, selection: "last-used" };
+};
+
 export const fetchOrders = async (context: LoginContext): Promise<unknown> => {
   return http(`${ORDERS_BASE}/api/v2/orders/history`, {
     method: "GET",
@@ -592,7 +742,7 @@ export const addToBasket = async (
   quantity = 1,
   cartId?: string,
 ): Promise<unknown> => {
-  const location = await getLocation();
+  const location = await getLocation(context);
 
   const storeContextResponse = await http<StoreContextsResponse>(
     `${CATALOG_BASE}/api/v3/store-contexts`,
@@ -864,7 +1014,7 @@ export const removeFromBasket = async (
   quantity?: number,
   cartId?: string,
 ): Promise<unknown> => {
-  const location = await getLocation();
+  const location = await getLocation(context);
 
   const storeContextResponse = await http<StoreContextsResponse>(
     `${CATALOG_BASE}/api/v3/store-contexts`,
@@ -1056,7 +1206,7 @@ export const removeFromBasket = async (
 };
 
 export const viewCart = async (context: LoginContext): Promise<unknown> => {
-  const location = await getLocation();
+  const location = await getLocation(context);
 
   const storeContextResponse = await http<StoreContextsResponse>(
     `${CATALOG_BASE}/api/v3/store-contexts`,

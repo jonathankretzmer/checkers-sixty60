@@ -30,15 +30,19 @@ node dist/cli.js --help
   - `checkers-sixty60 add-to-basket --product-id <id> --qty <n> [--cart-id <id>]`
 - Search:
   - `checkers-sixty60 search --query <text> --compact`
+- Location / config:
+  - `checkers-sixty60 addresses [--json]` (list delivery addresses saved on the Checkers account; read-only, marks the active one)
+  - `checkers-sixty60 set-location --address-id <id>` (pin one of those) | `--last-used` (clear the pin, follow the most-recently-used)
+  - `checkers-sixty60 config` (redacted state snapshot: phone, email, pinned-address id, device id, credential presence — no tokens)
 - MCP server:
-  - `checkers-sixty60 mcp` (stdio, single-user; tools mirror the commands above plus `remove_from_basket` and `set_location`)
+  - `checkers-sixty60 mcp` (stdio, single-user; tools mirror the commands above plus `remove_from_basket`, `list_addresses`, `set_location`, `get_config`)
   - `checkers-sixty60 mcp --http [--port <n>]` (Streamable HTTP, multi-tenant; for hosting behind an MCP gateway such as Obot)
 
 ## Local State
 
 - Auth state: `~/.checkers-sixty60/auth.json`
 - Device id: `~/.checkers-sixty60/device.json`
-- Location settings: `~/.checkers-sixty60/settings.json`
+- Pinned delivery-address id: `~/.checkers-sixty60/settings.json` (`{ addressId, savedAt }`; absent = follow most-recently-used)
 
 Under `mcp --http` the same three files are per-tenant at
 `$SIXTY60_DATA_DIR/tenants/<sha256(identity)>/…`; the CLI and stdio server run
@@ -60,17 +64,33 @@ needed one is missing. `dist/*.js` entrypoints load `.env` from cwd via
 
 ## Location Handling
 
-Many endpoints depend on latitude/longitude to resolve store contexts.
+Many endpoints depend on latitude/longitude to resolve store contexts. Those
+coordinates **only ever come from an address saved on the Checkers account** —
+there is no local coordinate storage, no geocoding, and no default fallback.
 
-- Persist across sessions:
-  - `checkers-sixty60 set-location --lat <value> --lng <value>`
-- Override per session:
-  - `SIXTY60_LATITUDE=<lat> SIXTY60_LONGITUDE=<lng> checkers-sixty60 view-cart`
+- `api.ts:resolveDeliveryAddress(ctx)` is the single resolver. It reads the
+  pinned address id (`tenant-state.readSelectedAddressId`, from `settings.json`),
+  fetches the account's addresses, and returns the pinned one — or, if nothing
+  is pinned, the one with the highest `lastUsedOn`. Throws an actionable error
+  if the account has no address with coordinates.
+- `fetchAddresses(ctx)` — `GET auth.sixty60.co.za/customers/<userId>/addresses`
+  (the mongo profile id, ordinary user access token; `storeIds` may be `[]`, so
+  it is safe to call mid-login/hydrate). Coordinates live at
+  `coordinates.{latitude,longitude}`; `normalizeAddress` also tolerates
+  `geoLocation.*` / top-level `lat`/`lng`.
+- `checkers-sixty60 addresses [--json]` lists them (read-only; add/edit in the
+  Sixty60 app) and marks the active one.
+- `checkers-sixty60 set-location --address-id <id>` pins (writes
+  `{ addressId, savedAt }` via `writeSelectedAddressId`); `--last-used` clears
+  the file (`clearSelectedAddress`).
+- `checkers-sixty60 config` shows `location.pinnedAddressId` (`null` = follow
+  most-recently-used) and `location.active` — the resolved address in effect
+  (one read-only lookup when a saved session exists; else `active: null` +
+  `location.note`).
 
-Resolution order:
-1. env vars
-2. saved settings file
-3. generic defaults
+An account with zero saved addresses cannot resolve store context, so
+delivery-dependent calls — and `login` / `requireAuth` hydration, which needs
+store ids — fail until an address is added in the app.
 
 ## Code Map
 
@@ -80,10 +100,10 @@ Resolution order:
 - `src/identity.ts`: request → tenant id (OIDC JWT / trusted proxy header / anonymous)
 - `src/context.ts`: `AsyncLocalStorage` tenant context; `currentTenant()`, `runWithTenant()`
 - `src/store.ts`: per-tenant `TenantStore` (`FileStore`), keyed lock chains, `default` tenant = legacy flat files
-- `src/tenant-state.ts`: tenant-scoped device-id / location accessors used by `api.ts`
+- `src/tenant-state.ts`: tenant-scoped device-id + pinned-delivery-address-id accessors used by `api.ts` / `session.ts`
 - `src/crypto.ts`: optional AES-256-GCM envelope encryption for at-rest state (`SIXTY60_STATE_KEY`)
 - `src/session.ts`: auth/session logic (login state, hydration, re-auth-on-expiry); reads the active tenant via `currentTenant()`
-- `src/api.ts`: HTTP calls and request/response shaping
+- `src/api.ts`: HTTP calls and request/response shaping; `fetchAddresses` / `resolveDeliveryAddress` supply delivery coordinates from the Checkers account
 - `src/http.ts`: fetch wrapper (throws `HttpError` with status on non-2xx)
 - `src/format.ts`: compact output shaping shared by CLI and MCP tools
 - `src/storage.ts`: filesystem primitives (`readTextFile`, `writeTextFileAtomic`) + state types

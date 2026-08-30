@@ -10,6 +10,9 @@ const DATA_DIR =
 export const DATA_DIR_PATH = DATA_DIR;
 export const AUTH_FILE = `${DATA_DIR}/auth.json`;
 export const DEVICE_FILE = `${DATA_DIR}/device.json`;
+// Holds the pinned delivery-address selection (see src/tenant-state.ts). All
+// coordinates come from the addresses saved on the Checkers account itself —
+// there is no local coordinate storage or fallback.
 export const SETTINGS_FILE = `${DATA_DIR}/settings.json`;
 
 // Per-tenant state (multi-user HTTP hosting) lives under DATA_DIR/tenants/<slug>.

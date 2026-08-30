@@ -14,10 +14,10 @@ export type DeviceState = {
     deviceId: string;
     savedAt: string;
 };
-export type LocationSettings = {
-    latitude: number;
-    longitude: number;
+export type AddressSelection = {
+    addressId: string;
     savedAt: string;
 };
 export declare const readTextFile: (path: string) => Promise<string | null>;
 export declare const writeTextFileAtomic: (path: string, text: string) => Promise<void>;
+export declare const removeFile: (path: string) => Promise<void>;
